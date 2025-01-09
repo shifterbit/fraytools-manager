@@ -1,0 +1,13 @@
+{
+  "plugins": [
+    {"owner": "Fraymakers", "repo": "metadata-plugin", "id": "com.fraymakers.FraymakersMetadata"},
+    {"owner": "Fraymakers", "repo": "api-types-plugin", "id": "com.fraymakers.FraymakersTypes"},
+    {"owner": "Fraymakers", "repo": "content-exporter-plugin", "id": "com.fraymakers.ContentExporter"}
+  ],
+  "templates": [
+    {"owner": "Fraymakers", "repo": "character-template"},
+    {"owner": "Fraymakers", "repo": "assist-template"},
+    {"owner": "Fraymakers", "repo": "stage-template"},
+    {"owner": "Fraymakers", "repo": "music-template"}
+  ]
+}
