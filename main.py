@@ -1,37 +1,3 @@
-# import sys
-# import random
-# from PySide6 import QtCore, QtWidgets, QtGui
-
-# class MyWidget(QtWidgets.QWidget):
-#     def __init__(self):
-#         super().__init__()
-
-#         self.hello = ["Hallo Welt", "Hei maailma", "Hola Mundo", "Привет мир"]
-
-#         self.button = QtWidgets.QPushButton("Click me!")
-#         self.text = QtWidgets.QLabel("Hello World",
-#                                      alignment=QtCore.Qt.AlignCenter)
-
-#         self.layout = QtWidgets.QVBoxLayout(self)
-#         self.layout.addWidget(self.text)
-#         self.layout.addWidget(self.button)
-
-#         self.button.clicked.connect(self.magic)
-
-#     @QtCore.Slot()
-#     def magic(self):
-#         self.text.setText(random.choice(self.hello))
-
-
-# if __name__ == "__main__":
-#     app = QtWidgets.QApplication([])
-#
-#     widget = MyWidget()
-#     widget.resize(800, 600)
-#     widget.show()
-#
-#     sys.exit(app.exec())
-#
 import os
 from sys import version
 from typing import Self, Type, Generator
@@ -42,6 +8,34 @@ from github import Github
 from urllib.request import urlretrieve
 import zipfile
 import pprint
+import sys
+import random
+from PySide6 import QtCore, QtWidgets, QtGui
+
+from PySide6.QtWidgets import (
+    QAbstractScrollArea,
+    QApplication,
+    QComboBox,
+    QDialog,
+    QDialogButtonBox,
+    QGridLayout,
+    QGroupBox,
+    QFormLayout,
+    QHBoxLayout,
+    QLabel,
+    QLineEdit,
+    QListWidget,
+    QListWidgetItem,
+    QMenu,
+    QMenuBar,
+    QPushButton,
+    QSpacerItem,
+    QSpinBox,
+    QTextEdit,
+    QVBoxLayout,
+)
+
+
 def _is_root(info: zipfile.ZipInfo) -> bool:
     if info.is_dir():
         parts = info.filename.split("/")
@@ -49,6 +43,7 @@ def _is_root(info: zipfile.ZipInfo) -> bool:
         if len(parts) == 1 or (len(parts) == 2 and parts[1] == ""):
             return True
     return False
+
 
 def _members_without_root(archive: zipfile.ZipFile, root_filename: str) -> Generator:
     for info in archive.infolist():
@@ -58,15 +53,18 @@ def _members_without_root(archive: zipfile.ZipFile, root_filename: str) -> Gener
             info.filename = root_filename.join(parts[1:])
             yield info
 
-def extract_zip_without_root(archive_name:str, path:str):
-    with zipfile.ZipFile(f'{archive_name}', mode="r") as archive:
-    # We will use the first directory with no more than one path segment as the root.
+
+def extract_zip_without_root(archive_name: str, path: str):
+    with zipfile.ZipFile(f"{archive_name}", mode="r") as archive:
+        # We will use the first directory with no more than one path segment as the root.
         root = next(info for info in archive.infolist() if _is_root(info))
         if root:
-            archive.extractall(path=path, members=_members_without_root(archive, root.filename))
+            archive.extractall(
+                path=path, members=_members_without_root(archive, root.filename)
+            )
         else:
-            archive.extractall(path);
-            
+            archive.extractall(path)
+
 
 def plugin_directory() -> Path:
     return Path.home().joinpath("FrayToolsData", "plugins")
@@ -108,8 +106,8 @@ class SourcesConfig:
                 templates.append(template_config)
             return SourcesConfig(plugins, templates)
 
-    def generate_plugin_config_map(self) -> dict[str,PluginConfig]:
-        plugin_map: dict[str,PluginConfig] = dict()
+    def generate_plugin_config_map(self) -> dict[str, PluginConfig]:
+        plugin_map: dict[str, PluginConfig] = dict()
         for plugin in self.plugins:
             plugin_map[plugin.id] = plugin
         return plugin_map
@@ -211,30 +209,107 @@ def detect_plugins() -> list[PluginManifest]:
                         manifest.description = config["description"]
                         manifest.version = config["version"]
                     manifest_paths.append(manifest)
-                
+
     return manifest_paths
 
+
 def generate_manifest_map(manifests: list[PluginManifest]) -> dict[str, PluginManifest]:
-    manifest_map: dict[str,PluginManifest] = dict()
+    manifest_map: dict[str, PluginManifest] = dict()
     for manifest in manifests:
         manifest_map[manifest.id] = manifest
     return manifest_map
 
+
 def generate_plugin_map(plugins: list[FrayToolsPlugin]) -> dict[str, FrayToolsPlugin]:
-    plugin_map: dict[str,FrayToolsPlugin] = dict()
+    plugin_map: dict[str, FrayToolsPlugin] = dict()
     for plugin in plugins:
         plugin_map[plugin.id] = plugin
     return plugin_map
 
-def main():
-    p = map(lambda x: [x.id,x.description,x.version,x.path,x.name], detect_plugins())
-    sources_config:SourcesConfig = SourcesConfig.from_config("./sources.json")
+
+sources_config: SourcesConfig
+config_map = None
+manifest_map: dict[str, PluginManifest]
+
+
+class PluginListWidget(QtWidgets.QWidget):
+    def __init__(self):
+        super().__init__()
+
+        # self.hello = ["Hallo Welt", "Hei maailma", "Hola Mundo", "Привет мир"]
+        self.button = QtWidgets.QPushButton("Click me!")
+        self.text = QtWidgets.QLabel(
+            "Fraytools Manager", alignment=QtCore.Qt.AlignCenter
+        )
+        self.create_plugin_list()
+        self.add_installed_plugins()
+
+        self.layout = QtWidgets.QVBoxLayout(self)
+        self.layout.addWidget(self.text)
+        self.layout.addWidget(self.installed_items)
+
+        self.button.clicked.connect(self.magic)
+
+    def create_plugin_list(self):
+        self.installed_items = QListWidget()
+
+    def add_installed_plugins(self):
+        self.installed_items.clear()
+        for plugin in detect_plugins():
+            item = QListWidgetItem(self.installed_items)
+            row = PluginItemWidget(plugin.name, plugin.id, self)
+            self.installed_items.addItem(item)
+            self.installed_items.setItemWidget(item, row)
+            item.setSizeHint(row.minimumSizeHint())
+
+    @QtCore.Slot()
+    def magic(self):
+        self.text.setText(random.choice(self.hello))
+
+
+class PluginItemWidget(QtWidgets.QWidget):
+    def __init__(self, name: str, id: str, parent=None):
+        super(PluginItemWidget, self).__init__(parent)
+        self.row = QHBoxLayout()
+        self.row.setSpacing(0)
+        self.setMinimumHeight(30)
+
+        text_label = QLabel(f"{name} ({id})")
+
+        install_button = QPushButton("Install")
+        install_button.setMaximumWidth(60)
+
+        uninstall_button = QPushButton("Uninstall")
+        uninstall_button.setMaximumWidth(60)
+
+        selection_list = QComboBox(self)
+        selection_list.setPlaceholderText("Select Version")
+        selection_list.setMaximumWidth(120)
+
+        self.row.addWidget(text_label, alignment=QtCore.Qt.AlignmentFlag.AlignLeft)
+        self.row.addWidget(install_button)
+        self.row.addWidget(uninstall_button)
+        self.row.addWidget(selection_list)
+        self.setLayout(self.row)
+
+
+if __name__ == "__main__":
+    app = QtWidgets.QApplication([])
+    sources_config = SourcesConfig.from_config("./sources.json")
     config_map = sources_config.generate_plugin_config_map()
-    manifest_map:dict[str, PluginManifest] = generate_manifest_map(detect_plugins())
-    plugin:FrayToolsPlugin = FrayToolsPlugin.fetch_data(sources_config.plugins[0])
-    pprint.pp(plugin.__dict__)
-    plugin.download_version(0,manifest_map)
+    manifest_map = generate_manifest_map(detect_plugins())
+    widget = PluginListWidget()
+    widget.resize(800, 600)
+    widget.show()
+
+    sys.exit(app.exec())
 
 
-main()
+def main():
+    p = map(
+        lambda x: [x.id, x.description, x.version, x.path, x.name], detect_plugins()
+    )
+    plugin: FrayToolsPlugin = FrayToolsPlugin.fetch_data(sources_config.plugins[0])
 
+
+# main()
