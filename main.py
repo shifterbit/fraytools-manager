@@ -34,6 +34,8 @@ from PySide6.QtWidgets import (
     QTextEdit,
     QVBoxLayout,
 )
+import github
+gh = Github()
 
 
 def _is_root(info: zipfile.ZipInfo) -> bool:
@@ -148,10 +150,10 @@ class FrayToolsPlugin:
 
     @staticmethod
     def fetch_data(config: PluginConfig):
+        global gh
         id = config.id
         owner = config.owner
         repo_name = config.repo
-        gh = Github()
         repo = gh.get_repo(f"{owner}/{repo_name}")
         releases = repo.get_releases()
         versions: list[FrayToolsPluginVersion] = []
@@ -167,7 +169,6 @@ class FrayToolsPlugin:
         self, index: int, manifests: dict[str, PluginManifest] | None = None
     ):
         download_url = self.versions[index].url
-        print(download_url)
         tag = self.versions[index].tag
         name = self.id
         filename = f"{name}-{tag}.zip"
@@ -176,14 +177,12 @@ class FrayToolsPlugin:
 
         if manifests is not None and self.id in manifests.keys():
             manifest_path = manifests[self.id].path
-            print("Found existing plugin")
         if manifest_path is not None:
             extract_zip_without_root(filename, str(manifest_path))
         else:
             outpath = plugin_directory().joinpath(name)
             if not os.path.isdir(outpath):
                 os.makedirs(outpath)
-            print(outpath)
             extract_zip_without_root(filename, str(outpath))
 
 
@@ -242,30 +241,39 @@ def generate_config_map(plugins: list[PluginConfig]) -> dict[str, PluginConfig]:
 
 
 sources_config: SourcesConfig
-config_map: dict[str, PluginConfig]
-manifest_map: dict[str, PluginManifest]
-plugin_entries: list[PluginEntry]
+config_map: dict[str, PluginConfig] = dict()
+manifest_map: dict[str, PluginManifest] = dict()
+plugin_entries: list[PluginEntry] = []
+plugin_map: dict[str, FrayToolsPlugin] = dict()
 
 
 def generate_plugin_entries() -> list[PluginEntry]:
+    global plugin_entries, config_map, manifest_map
     installed_entries: list[PluginEntry] = list(
         map(lambda m: PluginEntry(m, None, None), manifest_map.values())
     )
 
     uninstalled_entries: list[PluginEntry] = list(
         map(
-            lambda c: PluginEntry(None, p, None),
+            lambda c: PluginEntry(None, c, None),
             (filter(lambda p: p.id not in manifest_map.keys(), config_map.values())),
         )
     )
 
     for entry in installed_entries:
-        if entry.manifest is not None and entry.manifest.id in config_map.keys():
+        if entry.manifest and entry.manifest.id in config_map.keys():
             entry.config = config_map[entry.manifest.id]
+        if entry.manifest and entry.manifest.id in plugin_map.keys():
+            entry.plugin = plugin_map[entry.manifest.id]
+            
+
+    
     
     entries:list[PluginEntry] = installed_entries + uninstalled_entries
     plugin_entries = entries
+    
     return entries
+
 
 
 class PluginListWidget(QtWidgets.QWidget):
@@ -277,8 +285,12 @@ class PluginListWidget(QtWidgets.QWidget):
         self.text = QtWidgets.QLabel(
             "Fraytools Manager", alignment=QtCore.Qt.AlignCenter
         )
+        self.refresh_data()
         self.create_plugin_list()
         self.add_installed_plugins()
+
+        menubar = QMenuBar(self)
+        menubar.show()
 
         self.layout = QtWidgets.QVBoxLayout(self)
         self.layout.addWidget(self.text)
@@ -297,6 +309,18 @@ class PluginListWidget(QtWidgets.QWidget):
             self.installed_items.addItem(item)
             self.installed_items.setItemWidget(item, row)
             item.setSizeHint(row.minimumSizeHint())
+
+    def refresh_data(self):
+        global manifest_map, plugin_entries, plugin_map, config_map
+        plugins:list[FrayToolsPlugin] = []
+        for config in config_map.values():
+            plugin:FrayToolsPlugin = FrayToolsPlugin.fetch_data(config)
+            plugins.append(plugin)
+
+        manifest_map = generate_manifest_map(detect_plugins())
+        plugin_map = generate_plugin_map(plugins)
+        plugin_entries = generate_plugin_entries()
+        self.create_plugin_list()
 
     @QtCore.Slot()
     def magic(self):
@@ -344,6 +368,7 @@ class PluginItemWidget(QtWidgets.QWidget):
             version_strings:list[str] = list(map(lambda v: v.tag ,entry.plugin.versions))
             selection_list.addItems(version_strings)
             selection_list.setMaximumWidth(120)
+            self.row.addWidget(selection_list)
             if entry.manifest:
                 selection_list.currentData(version_strings.index(entry.manifest.version))
 
@@ -367,7 +392,6 @@ def main():
     p = map(
         lambda x: [x.id, x.description, x.version, x.path, x.name], detect_plugins()
     )
-    plugin: FrayToolsPlugin = FrayToolsPlugin.fetch_data(sources_config.plugins[0])
 
 
 # main()
