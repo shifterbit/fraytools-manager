@@ -507,7 +507,6 @@ class PluginItemWidget(QtWidgets.QWidget):
             self.row.addWidget(installed_button)
 
             selection_list = QComboBox(self)
-            selection_list.setPlaceholderText("Select Version")
             version_strings: list[str] = list(
                 map(lambda v: v.tag, entry.plugin.versions)
             )
@@ -518,6 +517,8 @@ class PluginItemWidget(QtWidgets.QWidget):
                 selection_list.currentData(
                     version_strings.index(entry.manifest.version)
                 )
+            else:
+                selection_list.setPlaceholderText("Select Version")
 
         self.setLayout(self.row)
 
