@@ -103,6 +103,10 @@ def cache_directory() -> Path:
     return app_directory().joinpath("cache")
 
 
+def download_location(id: str, tag: str):
+    return cache_directory().joinpath(f"{id}", f"{id}-{tag}")
+
+
 class PluginConfig:
     def __init__(self, owner: str, repo: str, id: str):
         self.owner = owner
@@ -198,10 +202,14 @@ class FrayToolsPlugin:
         download_url = self.versions[index].url
         tag: str = self.versions[index].tag
         name: str = self.id
-        filename: str = str(cache_directory().joinpath(f"{name}-{tag}.zip"))
-        _, _ = urlretrieve(download_url, filename)
-        manifest_path = None
+        download_path: Path = cache_directory().joinpath(f"{name}")
+        if not download_path.exists():
+            os.makedirs(download_path)
 
+        filename: str = str(download_path.joinpath(f"{name}-{tag}.zip"))
+        _, msg = urlretrieve(download_url, filename)
+
+        manifest_path = None
         if manifests is not None and self.id in manifests.keys():
             manifest_path = manifests[self.id].path
 
@@ -370,7 +378,7 @@ class Cache:
 
 
 def generate_plugin_entries() -> list[PluginEntry]:
-    global plugin_entries, config_map, manifest_map
+    global plugin_entries, config_map, manifest_map, plugin_map
     installed_entries: list[PluginEntry] = list(
         map(lambda m: PluginEntry(m, None, None), manifest_map.values())
     )
@@ -387,6 +395,10 @@ def generate_plugin_entries() -> list[PluginEntry]:
             entry.config = config_map[entry.manifest.id]
         if entry.manifest and entry.manifest.id in plugin_map.keys():
             entry.plugin = plugin_map[entry.manifest.id]
+
+    for entry in uninstalled_entries:
+        if entry.config and entry.config.id in plugin_map.keys():
+            entry.plugin = plugin_map[entry.config.id]
 
     entries: list[PluginEntry] = installed_entries + uninstalled_entries
     plugin_entries = entries
@@ -465,18 +477,20 @@ class PluginListWidget(QtWidgets.QWidget):
         self.create_plugin_list()
 
 
-
 class PluginItemWidget(QtWidgets.QWidget):
     def __init__(self, entry: PluginEntry, parent=None):
         super(PluginItemWidget, self).__init__(parent)
 
         self.entry = entry
         self.tags = []
-        if entry.manifest:
-            self.selected_version = self.entry.manifest.version
+        self.selected_version = None
 
         if entry.plugin:
             self.tags = list(map(lambda v: v.tag, entry.plugin.versions))
+            if entry.manifest and entry.manifest.version in self.tags:
+                self.selected_version = self.entry.manifest.version
+
+        print([self.tags, entry.plugin])
         self.create_elements()
         self.update_buttons()
 
@@ -496,6 +510,10 @@ class PluginItemWidget(QtWidgets.QWidget):
         self.install_button.setMaximumWidth(60)
         self.row.addWidget(self.install_button)
 
+        self.download_button = QPushButton("Download")
+        self.download_button.setMaximumWidth(70)
+        self.row.addWidget(self.download_button)
+
         self.installed_button = QPushButton("Installed")
         self.installed_button.setMaximumWidth(60)
         self.installed_button.setEnabled(False)
@@ -505,9 +523,10 @@ class PluginItemWidget(QtWidgets.QWidget):
         self.selection_list.currentIndexChanged.connect(self.on_select)
         self.selection_list.addItems(self.tags)
         self.selection_list.setMaximumWidth(120)
-        if self.selected_version and self.entry.plugin:
-            self.selection_list.setCurrentIndex(self.tags.index(self.entry.manifest.version))
-            
+        if self.entry.manifest and self.entry.plugin and self.selected_version:
+            self.selection_list.setCurrentIndex(
+                self.tags.index(self.selected_version)
+            )
 
         self.row.addWidget(self.selection_list)
 
@@ -519,6 +538,9 @@ class PluginItemWidget(QtWidgets.QWidget):
 
     def update_buttons(self) -> None:
         entry: PluginEntry = self.entry
+        manifest: PluginManifest = entry.manifest
+        plugin: PluginManifest = entry.plugin
+
         display_name: str = ""
         if entry.manifest:
             display_name = f"{entry.manifest.name} ({entry.manifest.id})"
@@ -528,37 +550,35 @@ class PluginItemWidget(QtWidgets.QWidget):
             display_name = f"{entry.config.id}"
 
         self.text_label.setText(display_name)
-        
 
-        # Installed Button
-        if (entry.manifest and not entry.plugin) or (
-            entry.manifest
-            and entry.plugin
-            and self.selected_version == entry.manifest.version
-        ):
+        is_installed:bool = (manifest and not plugin) or (plugin and manifest and manifest.version == self.selected_version)
+        can_uninstall: bool = is_installed
+        can_download:bool = (not is_installed) and (plugin and not download_location(plugin.id, self.selected_version).exists())
+        can_install: bool = (not can_download) and (not is_installed)
+
+        if is_installed:
             self.installed_button.show()
-            self.install_button.hide()
-            if entry.plugin:
-                self.uninstall_button.show()
-            else:
-                self.uninstall_button.hide()
         else:
             self.installed_button.hide()
-            self.install_button.show()
-            if not entry.plugin:
-                self.uninstall_button.hide()
+        if can_download:
+            self.download_button.show()
+        else:
+            self.download_button.hide()
 
-        # Selection List
-        if not entry.plugin:
-            self.selection_list.hide()
-        elif not entry.manifest or (entry.manifest and len(self.tags) == 0):
-            self.selection_list.setPlaceholderText("Select Version")
+        if can_uninstall:
+            self.uninstall_button.show()
+        else:
+            self.uninstall_button.hide()
+
+        if can_install:
+            self.install_button.show()
+        else:
+            self.install_button.hide()
+
+        if plugin:
             self.selection_list.show()
         else:
-            index: int = self.tags.index(self.selected_version)
-            
-            self.selection_list.currentData(index)
-            self.selection_list.show()
+            self.selection_list.hide()
 
         self.selection_list.update()
         self.install_button.update()
@@ -575,8 +595,8 @@ if __name__ == "__main__":
     plugin_entries = generate_plugin_entries()
     Cache.read_from_disk()
     widget = MainWindow()
-    widget.resize(800, 600)
-    widget.setMinimumSize(QtCore.QSize(800,600))
+    widget.resize(1000, 600)
+    widget.setMinimumSize(QtCore.QSize(800, 600))
     widget.show()
 
     sys.exit(app.exec())
