@@ -1,6 +1,5 @@
 import os
-from sys import version
-from typing import Self, Type, Generator
+from typing import Self, Type, Generator, TypedDict
 from os import path
 import json
 from pathlib import Path
@@ -10,6 +9,7 @@ import zipfile
 import pprint
 import sys
 import random
+import platform
 from PySide6 import QtCore, QtWidgets, QtGui
 
 from PySide6.QtWidgets import (
@@ -31,10 +31,14 @@ from PySide6.QtWidgets import (
     QPushButton,
     QSpacerItem,
     QSpinBox,
+    QTabWidget,
     QTextEdit,
     QVBoxLayout,
+    QWidget,
 )
 import github
+
+
 gh = Github()
 
 
@@ -69,11 +73,34 @@ def extract_zip_without_root(archive_name: str, path: str):
 
 
 def plugin_directory() -> Path:
-    return Path.home().joinpath("FrayToolsData", "plugins")
+    dir = Path.home().joinpath("FrayToolsData", "plugins")
+    if not dir.exists():
+        os.makedirs(dir)
+    return dir
 
 
 def template_directory() -> Path:
-    return Path.home().joinpath("FrayToolsData", "templates")
+    dir = Path.home().joinpath("FrayToolsData", "templates")
+    if not dir.exists():
+        os.makedirs(dir)
+    return dir
+
+
+def app_directory() -> Path:
+    dir: Path
+    if platform.system() == "Windows":
+        dir = Path.home().joinpath("FrayToolsManager")
+    else:
+        dir = Path.home().joinpath(".config", "FrayToolsManager")
+    if not dir.exists():
+        os.makedirs(dir)
+    if not dir.joinpath("cache").exists():
+        os.makedirs(dir.joinpath("cache"))
+    return dir
+
+
+def cache_directory() -> Path:
+    return app_directory().joinpath("cache")
 
 
 class PluginConfig:
@@ -169,14 +196,15 @@ class FrayToolsPlugin:
         self, index: int, manifests: dict[str, PluginManifest] | None = None
     ):
         download_url = self.versions[index].url
-        tag = self.versions[index].tag
-        name = self.id
-        filename = f"{name}-{tag}.zip"
+        tag: str = self.versions[index].tag
+        name: str = self.id
+        filename: str = str(cache_directory().joinpath(f"{name}-{tag}.zip"))
         _, _ = urlretrieve(download_url, filename)
         manifest_path = None
 
         if manifests is not None and self.id in manifests.keys():
             manifest_path = manifests[self.id].path
+            
         if manifest_path is not None:
             extract_zip_without_root(filename, str(manifest_path))
         else:
@@ -187,7 +215,12 @@ class FrayToolsPlugin:
 
 
 class PluginEntry:
-    def __init__(self, manifest: PluginManifest | None, config: PluginConfig | None, plugin: FrayToolsPlugin | None):
+    def __init__(
+        self,
+        manifest: PluginManifest | None,
+        config: PluginConfig | None,
+        plugin: FrayToolsPlugin | None,
+    ):
         self.plugin = plugin
         self.manifest = manifest
         self.config = config
@@ -240,11 +273,100 @@ def generate_config_map(plugins: list[PluginConfig]) -> dict[str, PluginConfig]:
     return config_map
 
 
+class CachedFrayToolsPluginVersion(TypedDict):
+    url: str
+    tag: str
+
+
+class CachedFrayToolsPlugin(TypedDict):
+    id: str
+    owner: str
+    repo: str
+    versions: list[CachedFrayToolsPluginVersion]
+
+
 sources_config: SourcesConfig
 config_map: dict[str, PluginConfig] = dict()
 manifest_map: dict[str, PluginManifest] = dict()
 plugin_entries: list[PluginEntry] = []
 plugin_map: dict[str, FrayToolsPlugin] = dict()
+plugin_cache: dict[str, CachedFrayToolsPlugin] = dict()
+
+
+class Cache:
+    @staticmethod
+    def plugin_to_cache(plugin: FrayToolsPlugin) -> CachedFrayToolsPlugin:
+        return CachedFrayToolsPlugin(
+            id=plugin.id,
+            owner=plugin.owner,
+            repo=plugin.repo,
+            versions=list(
+                map(
+                    lambda x: CachedFrayToolsPluginVersion(url=x.url, tag=x.tag),
+                    plugin.versions,
+                )
+            ),
+        )
+
+    @staticmethod
+    def cache_to_plugin(plugin: CachedFrayToolsPlugin) -> FrayToolsPlugin:
+        return FrayToolsPlugin(
+            id=plugin["id"],
+            owner=plugin["owner"],
+            repo=plugin["repo"],
+            versions=list(
+                map(
+                    lambda x: FrayToolsPluginVersion(url=x["url"], tag=x["tag"]),
+                    plugin["versions"],
+                )
+            ),
+        )
+
+    @staticmethod
+    def clear():
+        global plugin_cache
+        print("Clearing Cache..")
+        plugin_cache = dict()
+
+    @staticmethod
+    def delete(id: str):
+        global plugin_cache
+        plugin_cache.pop(id)
+
+    @staticmethod
+    def add(plugin: FrayToolsPlugin):
+        global plugin_cache
+        plugin_cache[plugin.id] = Cache.plugin_to_cache(plugin)
+
+    @staticmethod
+    def exists(id: str):
+        global plugin_cache
+        return id in plugin_cache.keys()
+
+    @staticmethod
+    def get(id: str) -> FrayToolsPlugin:
+        global plugin_cache
+        return Cache.cache_to_plugin(plugin_cache[id])
+
+    @staticmethod
+    def write_to_disk():
+        global plugin_cache
+
+        json_str: str = json.dumps(plugin_cache)
+        print("Writing to cache on disk...")
+        with open(cache_directory().joinpath("sources-lock.json"), "w") as f:
+            f.write(json_str)
+            print("Successfully wrote to cache on disk")
+
+    @staticmethod
+    def read_from_disk():
+        global plugin_cache
+        cache_file = cache_directory().joinpath("sources-lock.json")
+        if cache_file.exists() and cache_file.is_file:
+            with open(cache_file, "r") as f:
+                print("Reading cache from disk...")
+                plugin_cache = json.loads(f.read())
+                print("Successfully read cache from disk.")
 
 
 def generate_plugin_entries() -> list[PluginEntry]:
@@ -265,15 +387,51 @@ def generate_plugin_entries() -> list[PluginEntry]:
             entry.config = config_map[entry.manifest.id]
         if entry.manifest and entry.manifest.id in plugin_map.keys():
             entry.plugin = plugin_map[entry.manifest.id]
-            
 
-    
-    
-    entries:list[PluginEntry] = installed_entries + uninstalled_entries
+    entries: list[PluginEntry] = installed_entries + uninstalled_entries
     plugin_entries = entries
-    
+
     return entries
 
+
+def refresh_data():
+    global manifest_map, plugin_entries, plugin_map, config_map, plugin_cache
+    print("Refreshing Plugin Sources...")
+    plugins: list[FrayToolsPlugin] = []
+    for config in config_map.values():
+        plugin: FrayToolsPlugin
+        if Cache.exists(config.id):
+            plugin = Cache.get(config.id)
+            print(f"Found {config.id} in cache")
+        else:
+            print(f"Could not find {config.id} in cache")
+            print(f"Fetching {config.id}")
+            plugin = FrayToolsPlugin.fetch_data(config)
+            Cache.add(plugin)
+            print(f"Added {config.id} to cache")
+        plugins.append(plugin)
+
+    manifest_map = generate_manifest_map(detect_plugins())
+    plugin_map = generate_plugin_map(plugins)
+    plugin_entries = generate_plugin_entries()
+    Cache.write_to_disk()
+
+
+class MainWindow(QtWidgets.QMainWindow):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+
+        self.setWindowTitle("FrayTools Manager")
+        #   self.setGeometry(100, 100, 500, 300)
+
+        self.plugin_list = PluginListWidget()
+        self.tabs = QTabWidget(self)
+        self.settings_menu = QWidget()
+        self.tabs.addTab(self.plugin_list, "Plugins")
+        self.tabs.addTab(self.settings_menu, "Settings")
+        self.setCentralWidget(self.tabs)
+
+        self.show()
 
 
 class PluginListWidget(QtWidgets.QWidget):
@@ -281,10 +439,7 @@ class PluginListWidget(QtWidgets.QWidget):
         super().__init__()
 
         # self.hello = ["Hallo Welt", "Hei maailma", "Hola Mundo", "Привет мир"]
-        self.button = QtWidgets.QPushButton("Click me!")
-        self.text = QtWidgets.QLabel(
-            "Fraytools Manager", alignment=QtCore.Qt.AlignCenter
-        )
+
         self.refresh_data()
         self.create_plugin_list()
         self.add_installed_plugins()
@@ -293,10 +448,7 @@ class PluginListWidget(QtWidgets.QWidget):
         menubar.show()
 
         self.layout = QtWidgets.QVBoxLayout(self)
-        self.layout.addWidget(self.text)
         self.layout.addWidget(self.installed_items)
-
-        self.button.clicked.connect(self.magic)
 
     def create_plugin_list(self):
         self.installed_items = QListWidget()
@@ -311,15 +463,7 @@ class PluginListWidget(QtWidgets.QWidget):
             item.setSizeHint(row.minimumSizeHint())
 
     def refresh_data(self):
-        global manifest_map, plugin_entries, plugin_map, config_map
-        plugins:list[FrayToolsPlugin] = []
-        for config in config_map.values():
-            plugin:FrayToolsPlugin = FrayToolsPlugin.fetch_data(config)
-            plugins.append(plugin)
-
-        manifest_map = generate_manifest_map(detect_plugins())
-        plugin_map = generate_plugin_map(plugins)
-        plugin_entries = generate_plugin_entries()
+        refresh_data()
         self.create_plugin_list()
 
     @QtCore.Slot()
@@ -338,15 +482,15 @@ class PluginItemWidget(QtWidgets.QWidget):
         self.row = QHBoxLayout()
         self.row.setSpacing(0)
         self.setMinimumHeight(30)
-        
-        entry:PluginEntry = self.entry
-        display_name:str = ""
+
+        entry: PluginEntry = self.entry
+        display_name: str = ""
         if entry.manifest:
-            display_name = f'{entry.manifest.name} ({entry.manifest.id})'
+            display_name = f"{entry.manifest.name} ({entry.manifest.id})"
         elif entry.plugin:
-            display_name = f'{entry.plugin.id}'
+            display_name = f"{entry.plugin.id}"
         elif entry.config:
-            display_name = f'{entry.config.id}'
+            display_name = f"{entry.config.id}"
 
         text_label = QLabel(display_name)
         self.row.addWidget(text_label, alignment=QtCore.Qt.AlignmentFlag.AlignLeft)
@@ -362,18 +506,21 @@ class PluginItemWidget(QtWidgets.QWidget):
             installed_button.setEnabled(False)
             self.row.addWidget(installed_button)
 
-            
             selection_list = QComboBox(self)
             selection_list.setPlaceholderText("Select Version")
-            version_strings:list[str] = list(map(lambda v: v.tag ,entry.plugin.versions))
+            version_strings: list[str] = list(
+                map(lambda v: v.tag, entry.plugin.versions)
+            )
             selection_list.addItems(version_strings)
             selection_list.setMaximumWidth(120)
             self.row.addWidget(selection_list)
             if entry.manifest:
-                selection_list.currentData(version_strings.index(entry.manifest.version))
+                selection_list.currentData(
+                    version_strings.index(entry.manifest.version)
+                )
 
         self.setLayout(self.row)
-        
+
 
 if __name__ == "__main__":
     app = QtWidgets.QApplication([])
@@ -381,17 +528,15 @@ if __name__ == "__main__":
     config_map = sources_config.generate_plugin_config_map()
     manifest_map = generate_manifest_map(detect_plugins())
     plugin_entries = generate_plugin_entries()
-    widget = PluginListWidget()
+    Cache.read_from_disk()
+    widget = MainWindow()
     widget.resize(800, 600)
     widget.show()
 
     sys.exit(app.exec())
 
 
-def main():
-    p = map(
-        lambda x: [x.id, x.description, x.version, x.path, x.name], detect_plugins()
-    )
+# def main():
 
 
 # main()
