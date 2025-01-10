@@ -171,7 +171,7 @@ class FrayToolsPlugin:
         tag = self.versions[index].tag
         name = self.id
         filename = f"{name}-{tag}.zip"
-        filepath, _ = urlretrieve(download_url, filename)
+        _, _ = urlretrieve(download_url, filename)
         manifest_path = None
 
         if manifests is not None and self.id in manifests.keys():
@@ -185,6 +185,13 @@ class FrayToolsPlugin:
                 os.makedirs(outpath)
             print(outpath)
             extract_zip_without_root(filename, str(outpath))
+
+
+class PluginEntry:
+    def __init__(self, manifest: PluginManifest | None, config: PluginConfig | None, plugin: FrayToolsPlugin | None):
+        self.plugin = plugin
+        self.manifest = manifest
+        self.config = config
 
 
 def detect_plugins() -> list[PluginManifest]:
@@ -227,9 +234,38 @@ def generate_plugin_map(plugins: list[FrayToolsPlugin]) -> dict[str, FrayToolsPl
     return plugin_map
 
 
+def generate_config_map(plugins: list[PluginConfig]) -> dict[str, PluginConfig]:
+    config_map: dict[str, PluginConfig] = dict()
+    for plugin in plugins:
+        config_map[plugin.id] = plugin
+    return config_map
+
+
 sources_config: SourcesConfig
-config_map = None
+config_map: dict[str, PluginConfig]
 manifest_map: dict[str, PluginManifest]
+plugin_entries: list[PluginEntry]
+
+
+def generate_plugin_entries() -> list[PluginEntry]:
+    installed_entries: list[PluginEntry] = list(
+        map(lambda m: PluginEntry(m, None, None), manifest_map.values())
+    )
+
+    uninstalled_entries: list[PluginEntry] = list(
+        map(
+            lambda c: PluginEntry(None, p, None),
+            (filter(lambda p: p.id not in manifest_map.keys(), config_map.values())),
+        )
+    )
+
+    for entry in installed_entries:
+        if entry.manifest is not None and entry.manifest.id in config_map.keys():
+            entry.config = config_map[entry.manifest.id]
+    
+    entries:list[PluginEntry] = installed_entries + uninstalled_entries
+    plugin_entries = entries
+    return entries
 
 
 class PluginListWidget(QtWidgets.QWidget):
@@ -255,9 +291,9 @@ class PluginListWidget(QtWidgets.QWidget):
 
     def add_installed_plugins(self):
         self.installed_items.clear()
-        for plugin in detect_plugins():
+        for entry in plugin_entries:
             item = QListWidgetItem(self.installed_items)
-            row = PluginItemWidget(plugin.name, plugin.id, self)
+            row = PluginItemWidget(entry, self)
             self.installed_items.addItem(item)
             self.installed_items.setItemWidget(item, row)
             item.setSizeHint(row.minimumSizeHint())
@@ -268,36 +304,58 @@ class PluginListWidget(QtWidgets.QWidget):
 
 
 class PluginItemWidget(QtWidgets.QWidget):
-    def __init__(self, name: str, id: str, parent=None):
+    def __init__(self, entry: PluginEntry, parent=None):
         super(PluginItemWidget, self).__init__(parent)
+
+        self.entry = entry
+        self.render_entry()
+
+    def render_entry(self):
         self.row = QHBoxLayout()
         self.row.setSpacing(0)
         self.setMinimumHeight(30)
+        
+        entry:PluginEntry = self.entry
+        display_name:str = ""
+        if entry.manifest:
+            display_name = f'{entry.manifest.name} ({entry.manifest.id})'
+        elif entry.plugin:
+            display_name = f'{entry.plugin.id}'
+        elif entry.config:
+            display_name = f'{entry.config.id}'
 
-        text_label = QLabel(f"{name} ({id})")
-
-        install_button = QPushButton("Install")
-        install_button.setMaximumWidth(60)
-
-        uninstall_button = QPushButton("Uninstall")
-        uninstall_button.setMaximumWidth(60)
-
-        selection_list = QComboBox(self)
-        selection_list.setPlaceholderText("Select Version")
-        selection_list.setMaximumWidth(120)
-
+        text_label = QLabel(display_name)
         self.row.addWidget(text_label, alignment=QtCore.Qt.AlignmentFlag.AlignLeft)
-        self.row.addWidget(install_button)
-        self.row.addWidget(uninstall_button)
-        self.row.addWidget(selection_list)
-        self.setLayout(self.row)
 
+        if entry.manifest:
+            uninstall_button = QPushButton("Uninstall")
+            uninstall_button.setMaximumWidth(60)
+            self.row.addWidget(uninstall_button)
+
+        if entry.plugin:
+            installed_button = QPushButton("Installed")
+            installed_button.setMaximumWidth(60)
+            installed_button.setEnabled(False)
+            self.row.addWidget(installed_button)
+
+            
+            selection_list = QComboBox(self)
+            selection_list.setPlaceholderText("Select Version")
+            version_strings:list[str] = list(map(lambda v: v.tag ,entry.plugin.versions))
+            selection_list.addItems(version_strings)
+            selection_list.setMaximumWidth(120)
+            if entry.manifest:
+                selection_list.currentData(version_strings.index(entry.manifest.version))
+
+        self.setLayout(self.row)
+        
 
 if __name__ == "__main__":
     app = QtWidgets.QApplication([])
     sources_config = SourcesConfig.from_config("./sources.json")
     config_map = sources_config.generate_plugin_config_map()
     manifest_map = generate_manifest_map(detect_plugins())
+    plugin_entries = generate_plugin_entries()
     widget = PluginListWidget()
     widget.resize(800, 600)
     widget.show()
