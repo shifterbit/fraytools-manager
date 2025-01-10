@@ -204,7 +204,7 @@ class FrayToolsPlugin:
 
         if manifests is not None and self.id in manifests.keys():
             manifest_path = manifests[self.id].path
-            
+
         if manifest_path is not None:
             extract_zip_without_root(filename, str(manifest_path))
         else:
@@ -438,8 +438,6 @@ class PluginListWidget(QtWidgets.QWidget):
     def __init__(self):
         super().__init__()
 
-        # self.hello = ["Hallo Welt", "Hei maailma", "Hola Mundo", "Привет мир"]
-
         self.refresh_data()
         self.create_plugin_list()
         self.add_installed_plugins()
@@ -466,9 +464,6 @@ class PluginListWidget(QtWidgets.QWidget):
         refresh_data()
         self.create_plugin_list()
 
-    @QtCore.Slot()
-    def magic(self):
-        self.text.setText(random.choice(self.hello))
 
 
 class PluginItemWidget(QtWidgets.QWidget):
@@ -476,13 +471,53 @@ class PluginItemWidget(QtWidgets.QWidget):
         super(PluginItemWidget, self).__init__(parent)
 
         self.entry = entry
-        self.render_entry()
+        self.tags = []
+        if entry.manifest:
+            self.selected_version = self.entry.manifest.version
 
-    def render_entry(self):
+        if entry.plugin:
+            self.tags = list(map(lambda v: v.tag, entry.plugin.versions))
+        self.create_elements()
+        self.update_buttons()
+
+    def create_elements(self) -> None:
         self.row = QHBoxLayout()
         self.row.setSpacing(0)
         self.setMinimumHeight(30)
 
+        self.text_label = QLabel("")
+        self.row.addWidget(self.text_label, alignment=QtCore.Qt.AlignmentFlag.AlignLeft)
+
+        self.uninstall_button = QPushButton("Uninstall")
+        self.uninstall_button.setMaximumWidth(60)
+        self.row.addWidget(self.uninstall_button)
+
+        self.install_button = QPushButton("Install")
+        self.install_button.setMaximumWidth(60)
+        self.row.addWidget(self.install_button)
+
+        self.installed_button = QPushButton("Installed")
+        self.installed_button.setMaximumWidth(60)
+        self.installed_button.setEnabled(False)
+        self.row.addWidget(self.installed_button)
+
+        self.selection_list = QComboBox(self)
+        self.selection_list.currentIndexChanged.connect(self.on_select)
+        self.selection_list.addItems(self.tags)
+        self.selection_list.setMaximumWidth(120)
+        if self.selected_version and self.entry.plugin:
+            self.selection_list.setCurrentIndex(self.tags.index(self.entry.manifest.version))
+            
+
+        self.row.addWidget(self.selection_list)
+
+        self.setLayout(self.row)
+
+    def on_select(self, index: int):
+        self.selected_version = self.tags[index]
+        self.update_buttons()
+
+    def update_buttons(self) -> None:
         entry: PluginEntry = self.entry
         display_name: str = ""
         if entry.manifest:
@@ -492,35 +527,44 @@ class PluginItemWidget(QtWidgets.QWidget):
         elif entry.config:
             display_name = f"{entry.config.id}"
 
-        text_label = QLabel(display_name)
-        self.row.addWidget(text_label, alignment=QtCore.Qt.AlignmentFlag.AlignLeft)
+        self.text_label.setText(display_name)
+        
 
-        if entry.manifest:
-            uninstall_button = QPushButton("Uninstall")
-            uninstall_button.setMaximumWidth(60)
-            self.row.addWidget(uninstall_button)
-
-        if entry.plugin:
-            installed_button = QPushButton("Installed")
-            installed_button.setMaximumWidth(60)
-            installed_button.setEnabled(False)
-            self.row.addWidget(installed_button)
-
-            selection_list = QComboBox(self)
-            version_strings: list[str] = list(
-                map(lambda v: v.tag, entry.plugin.versions)
-            )
-            selection_list.addItems(version_strings)
-            selection_list.setMaximumWidth(120)
-            self.row.addWidget(selection_list)
-            if entry.manifest:
-                selection_list.currentData(
-                    version_strings.index(entry.manifest.version)
-                )
+        # Installed Button
+        if (entry.manifest and not entry.plugin) or (
+            entry.manifest
+            and entry.plugin
+            and self.selected_version == entry.manifest.version
+        ):
+            self.installed_button.show()
+            self.install_button.hide()
+            if entry.plugin:
+                self.uninstall_button.show()
             else:
-                selection_list.setPlaceholderText("Select Version")
+                self.uninstall_button.hide()
+        else:
+            self.installed_button.hide()
+            self.install_button.show()
+            if not entry.plugin:
+                self.uninstall_button.hide()
 
-        self.setLayout(self.row)
+        # Selection List
+        if not entry.plugin:
+            self.selection_list.hide()
+        elif not entry.manifest or (entry.manifest and len(self.tags) == 0):
+            self.selection_list.setPlaceholderText("Select Version")
+            self.selection_list.show()
+        else:
+            index: int = self.tags.index(self.selected_version)
+            
+            self.selection_list.currentData(index)
+            self.selection_list.show()
+
+        self.selection_list.update()
+        self.install_button.update()
+        self.installed_button.update()
+        self.uninstall_button.update()
+        self.text_label.update()
 
 
 if __name__ == "__main__":
@@ -532,6 +576,7 @@ if __name__ == "__main__":
     Cache.read_from_disk()
     widget = MainWindow()
     widget.resize(800, 600)
+    widget.setMinimumSize(QtCore.QSize(800,600))
     widget.show()
 
     sys.exit(app.exec())
