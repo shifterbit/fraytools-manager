@@ -408,7 +408,7 @@ def generate_plugin_entries() -> list[PluginEntry]:
     return entries
 
 
-def refresh_data(fetch=True):
+def refresh_data(fetch=False):
     global manifest_map, plugin_entries, plugin_map, config_map, plugin_cache, sources_config
     sources_config = SourcesConfig.from_config("./sources.json")
     config_map = generate_config_map(sources_config.plugins)
@@ -507,7 +507,7 @@ class SettingsWidget(QtWidgets.QWidget):
         if msgBox.exec() == QMessageBox.StandardButton.Yes:
             Cache.clear()
             Cache.write_to_disk()
-            refresh_data(False)
+            refresh_data()
             self.refresh_parent()
         else:
             pass
@@ -525,7 +525,7 @@ class SettingsWidget(QtWidgets.QWidget):
             for p in cache_directory().iterdir():
                 if p.is_dir():
                     shutil.rmtree(p)
-            refresh_data(True)
+            refresh_data()
             self.refresh_parent()
         else:
             pass
@@ -544,7 +544,7 @@ class SettingsWidget(QtWidgets.QWidget):
         if msgBox.exec() == QMessageBox.StandardButton.Yes:
             Cache.clear()
             Cache.write_to_disk()
-            refresh_data()
+            refresh_data(True)
             self.refresh_parent()
         else:
             pass
@@ -611,6 +611,7 @@ class PluginItemWidget(QtWidgets.QWidget):
 
         self.uninstall_button = QPushButton("Uninstall")
         self.uninstall_button.setMaximumWidth(60)
+        self.uninstall_button.pressed.connect(self.on_uninstall)
         self.row.addWidget(self.uninstall_button)
 
         self.install_button = QPushButton("Install")
@@ -645,6 +646,35 @@ class PluginItemWidget(QtWidgets.QWidget):
     def on_select(self, index: int) -> None:
         self.selected_version = self.tags[index]
         self.update_buttons()
+
+    @QtCore.Slot()
+    def on_uninstall(self) -> None:
+        msgBox: QMessageBox = QMessageBox()
+        if self.entry.manifest:
+            manifest: PluginManifest = self.entry.manifest
+            msgBox.setWindowTitle(f"Uninstalling plugin")
+            if not self.entry.plugin or len(self.tags) == 0:
+                msgBox.setText(
+                    f"Are you sure you want to remove {manifest.name} ({manifest.version})?\nIt is the only version available."
+                )
+            else:
+                 msgBox.setText(
+                    f"Are you sure you want to remove {manifest.name} ({manifest.version})?"
+                )
+            msgBox.setStandardButtons(
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
+            )
+            msgBox.setDefaultButton(QMessageBox.StandardButton.No)
+            if msgBox.exec() == QMessageBox.StandardButton.Yes:
+                path = Path(manifest.path)
+                if path.exists():
+                    shutil.rmtree(path)
+                    self.refresh
+                    self.update_buttons()
+            else:
+                pass
+            pass
+        
 
     @QtCore.Slot()
     def on_install(self) -> None:
