@@ -459,15 +459,44 @@ class MainWindow(QtWidgets.QMainWindow):
         self.setWindowTitle("FrayTools Manager")
         #   self.setGeometry(100, 100, 500, 300)
 
-        self.plugin_list = PluginListWidget()
         self.tabs = QTabWidget(self)
-        self.settings_menu = QWidget()
+        self.plugin_list = PluginListWidget()
+        self.settings_menu = SettingsWidget()
         self.tabs.addTab(self.plugin_list, "Plugins")
         self.tabs.addTab(self.settings_menu, "Settings")
         self.setCentralWidget(self.tabs)
         self.setMinimumSize(QtCore.QSize(800, 600))
 
         self.show()
+
+class SettingsWidget(QtWidgets.QWidget):
+    def __init__(self) -> None:
+        super().__init__()
+        self.layout = QtWidgets.QVBoxLayout(self)
+        self.settings_items = QListWidget()
+        self.settings_items.setUniformItemSizes(True)
+        self.settings_items.setSpacing(10)
+        self.layout.addWidget(self.settings_items)
+        self.simple_settings_button("Cache Sources Cache", "Clears the sources cache")
+        self.simple_settings_button("Clear Download Cache", "Clears the sources cache")
+        self.simple_settings_button("Refresh", "Updates Plugin Metadata, Subject to Github API Limits")
+    
+
+    def simple_settings_button(self, button_text:str, description:str):
+        widget = QWidget()
+        widget.setMinimumHeight(40)
+        row = QHBoxLayout()
+        text = QLabel(description)
+        button = QPushButton(button_text)
+        row.addWidget(text)
+        row.addWidget(button)
+        widget.setLayout(row)
+        item = QListWidgetItem(self.settings_items)
+        item.setSizeHint(row.sizeHint())
+        self.settings_items.addItem(item)
+        self.settings_items.setItemWidget(item, widget)
+
+
 
 
 class PluginListWidget(QtWidgets.QWidget):
