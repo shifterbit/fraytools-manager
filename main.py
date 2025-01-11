@@ -129,6 +129,68 @@ class SourcesConfig:
             plugin_map[plugin.id] = plugin
         return plugin_map
 
+    def write_config(self):
+        plugins = []
+        templates = []
+        for plugin in self.plugins:
+            entry = dict()
+            entry["id"] = plugin.id
+            entry["owner"] = plugin.owner
+            entry["repo"] = plugin.repo
+            plugins.append(entry)
+            
+        for template in self.templates:
+            entry = dict()
+            entry["owner"] = template.owner
+            entry["repo"] = template.repo
+            templates.append(entry)
+        config = dict()
+        config["plugins"] = plugins
+        config["templates"] = templates
+        config_text:str = json.dumps(config, indent=2)
+        with open(str(app_directory().joinpath("sources.json")), "w") as f:
+            f.write(config_text)
+
+    @staticmethod
+    def generate_default_config():
+        return SourcesConfig(
+            plugins=[
+                PluginConfig(
+                    owner="Fraymakers",
+                    repo="metadata-plugin",
+                    id="com.fraymakers.FraymakersMetadata",
+                ),
+                PluginConfig(
+                    owner="Fraymakers",
+                    repo="api-types-plugin",
+                    id="com.fraymakers.FraymakersTypes",
+                ),
+                PluginConfig(
+                    owner="Fraymakers",
+                    repo="content-exporter-plugin",
+                    id="com.fraymakers.ContentExporter",
+                ),
+            ],
+            templates=[
+                TemplateConfig(
+                    owner="Fraymakers",
+                    repo="character-template",
+                ),
+                TemplateConfig(
+                    owner="Fraymakers",
+                    repo="assist-template",
+                ),
+                TemplateConfig(
+                    owner="Fraymakers",
+                    repo="stage-template",
+                ),
+                TemplateConfig(
+                    owner="Fraymakers",
+                    repo="stage-template",
+                ),
+            ],
+        )
+
 
 class PluginManifest:
     def __init__(
@@ -410,7 +472,13 @@ def generate_plugin_entries() -> list[PluginEntry]:
 
 def refresh_data(fetch=False):
     global manifest_map, plugin_entries, plugin_map, config_map, plugin_cache, sources_config
-    sources_config = SourcesConfig.from_config("./sources.json")
+    if app_directory().joinpath("sources.json").exists():
+        sources_config = SourcesConfig.from_config(str(app_directory().joinpath("sources.json")))
+    else:
+        sources_config = SourcesConfig.generate_default_config()
+        sources_config.write_config()
+    
+    
     config_map = generate_config_map(sources_config.plugins)
     Cache.read_from_disk()
     print("Refreshing Plugin Sources...")
@@ -658,7 +726,7 @@ class PluginItemWidget(QtWidgets.QWidget):
                     f"Are you sure you want to remove {manifest.name} ({manifest.version})?\nIt is the only version available."
                 )
             else:
-                 msgBox.setText(
+                msgBox.setText(
                     f"Are you sure you want to remove {manifest.name} ({manifest.version})?"
                 )
             msgBox.setStandardButtons(
@@ -674,7 +742,6 @@ class PluginItemWidget(QtWidgets.QWidget):
             else:
                 pass
             pass
-        
 
     @QtCore.Slot()
     def on_install(self) -> None:
@@ -767,6 +834,7 @@ class PluginItemWidget(QtWidgets.QWidget):
 
 def main():
     global config_map, manifest_map, plugin_entries, event_loop
+
     app = QtWidgets.QApplication([])
 
     refresh_data()
