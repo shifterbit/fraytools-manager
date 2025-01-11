@@ -102,7 +102,7 @@ def download_location(id: str, tag: str, asset_type: FrayToolsAssetType) -> Path
         case FrayToolsAssetType.Plugin:
             return cache_directory().joinpath("plugins", f"{id}")
         case FrayToolsAssetType.Template:
-            return cache_directory().joinpath("templates", f"{id}")
+            return template_directory().joinpath("templates", f"{id}")
 
 
 def download_location_file(id: str, tag: str, asset_type: FrayToolsAssetType) -> Path:
@@ -341,7 +341,7 @@ class AssetEntry:
             case FrayToolsAssetType.Plugin:
                 self.manifest = plugin_manifest
             case FrayToolsAssetType.Template:
-                self.manifest = plugin_manifest
+                self.manifest = template_manifest
 
     def display_name(self) -> str:
         display_name: str = ""
@@ -357,16 +357,25 @@ class AssetEntry:
         return (self.manifest is not None and self.asset is None) or (
             self.asset is not None
             and self.manifest is not None
-            and self.manifest.version == selected_version
+            and (
+                self.asset_type == FrayToolsAssetType.Template
+                or (
+                    self.asset_type == FrayToolsAssetType.Plugin
+                    and self.manifest.version == selected_version
+                )
+            )
         )
 
     def can_download(self, selected_version: str | None) -> bool:
         return (
-            not self.is_installed(selected_version)
+            (
+                self.asset_type == FrayToolsAssetType.Template
+                or not self.is_installed(selected_version)
+            )
             and self.asset is not None
             and selected_version is not None
             and not download_location_file(
-                self.asset.id, selected_version, FrayToolsAssetType.Plugin
+                self.asset.id, selected_version, self.asset_type
             ).exists()
         )
 
@@ -374,8 +383,8 @@ class AssetEntry:
         return self.is_installed(selected_version)
 
     def can_install(self, selected_version: str | None) -> bool:
-        return (not self.can_download(selected_version)) and (
-            not self.is_installed(selected_version)
+        return not (
+            self.can_download(selected_version) or self.is_installed(selected_version)
         )
 
 
@@ -418,7 +427,6 @@ def detect_templates() -> list[TemplateManifest]:
                         config["resourceId"], path=str(template_path)
                     )
                     template_manifests.append(manifest)
-                    pprint.pp(manifest)
             else:
                 continue
     return template_manifests
@@ -599,7 +607,7 @@ def generate_entries(asset_type: FrayToolsAssetType) -> list[AssetEntry]:
             asset_map = template_map
             manifest_map = template_manifest_map
             cfg_map = template_config_map
-            
+
     installed_entries: list[AssetEntry] = list(
         map(
             lambda manifest: AssetEntry(
@@ -630,7 +638,6 @@ def generate_entries(asset_type: FrayToolsAssetType) -> list[AssetEntry]:
             ),
         )
     )
-
 
     for entry in installed_entries:
         if entry.manifest and entry.manifest.id in config_map.keys():
@@ -712,11 +719,7 @@ def refresh_data(fetch=False, asset_type: FrayToolsAssetType | None = None):
 
     plugin_entries = generate_plugin_entries()
     template_entries = generate_template_entries()
-    print("template_entries")
-    print(template_entries)
-    print("plugin_entries")
-    print(plugin_entries)
-    
+
     Cache.write_to_disk()
 
 
@@ -858,7 +861,6 @@ class AssetListWidget(QtWidgets.QWidget):
             case FrayToolsAssetType.Plugin:
                 entries = plugin_entries
             case FrayToolsAssetType.Template:
-                pprint.pp(list(map(lambda x: pprint.pp(x), template_entries)))
                 entries = template_entries
 
         for entry in entries:
@@ -895,6 +897,7 @@ class AssetItemWidget(QtWidgets.QWidget):
             and self.asset_type == FrayToolsAssetType.Template
         ):
             self.tags = list(map(lambda v: v.tag, entry.asset.versions))
+            print(f"{entry.display_name()}: {self.tags}")
             if entry.manifest and entry.manifest.version in self.tags:
                 self.selected_version = entry.manifest.version
 
@@ -955,16 +958,17 @@ class AssetItemWidget(QtWidgets.QWidget):
             msgBox.setWindowTitle(f"Uninstalling plugin")
             if not self.entry.asset or len(self.tags) == 0:
                 msgBox.setText(
-                    f"Are you sure you want to remove {manifest.name} ({manifest.version})?\nIt is the only version available."
+                    f"Are you sure you want to remove {self.entry.display_name()}?\nIt is the only version available."
                 )
             else:
                 msgBox.setText(
-                    f"Are you sure you want to remove {manifest.name} ({manifest.version})?"
+                    f"Are you sure you want to remove {self.entry.display_name()} ({manifest.version})?"
                 )
             msgBox.setStandardButtons(
                 QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
             )
             msgBox.setDefaultButton(QMessageBox.StandardButton.No)
+            msgBox.adjustSize()
             if msgBox.exec() == QMessageBox.StandardButton.Yes:
                 path = Path(manifest.path)
                 if path.exists():
