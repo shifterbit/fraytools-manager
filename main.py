@@ -28,6 +28,7 @@ from PySide6.QtWidgets import (
     QListWidgetItem,
     QMenu,
     QMenuBar,
+    QMessageBox,
     QPushButton,
     QSpacerItem,
     QSpinBox,
@@ -504,28 +505,49 @@ class SettingsWidget(QtWidgets.QWidget):
         
     @QtCore.Slot()
     def clear_sources_cache(self):
-        Cache.clear()
-        Cache.write_to_disk()
-        refresh_data(False)
-        self.refresh_parent()
+        msgBox:QMessageBox = QMessageBox()
+        msgBox.setWindowTitle("Clear Sources Cache")
+        msgBox.setText("Are you sure you want to clear the sources Cache?")
+        msgBox.setStandardButtons(QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
+        msgBox.setDefaultButton(QMessageBox.StandardButton.No) 
+        if msgBox.exec() == QMessageBox.StandardButton.Yes:
+            Cache.clear()
+            Cache.write_to_disk()
+            refresh_data(False)
+            self.refresh_parent()    
+        else:
+            pass
         
     @QtCore.Slot()
     def clear_download_cache(self):
-        for p in cache_directory().iterdir():
-            if p.is_dir():
-                shutil.rmtree(p)
-        refresh_data(True)
-        self.refresh_parent()
-                
+        msgBox:QMessageBox = QMessageBox()
+        msgBox.setWindowTitle("Clear Download Cache")
+        msgBox.setText("Are you sure you want to clear the download cache?")
+        msgBox.setStandardButtons(QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
+        msgBox.setDefaultButton(QMessageBox.StandardButton.No) 
+        if msgBox.exec() == QMessageBox.StandardButton.Yes:
+           for p in cache_directory().iterdir():
+               if p.is_dir():
+                   shutil.rmtree(p)
+           refresh_data(True)
+           self.refresh_parent()
+        else:
+            pass
+            
     @QtCore.Slot()
     def refresh_sources(self):
-        Cache.clear()
-        Cache.write_to_disk()
-        refresh_data()
-        self.refresh_parent()
-
-
-
+        msgBox:QMessageBox = QMessageBox()
+        msgBox.setWindowTitle("Refresh Sources")
+        msgBox.setText("Refreshing sources too often might result in hitting API limits, are you sure you want to proceed?")
+        msgBox.setStandardButtons(QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
+        msgBox.setDefaultButton(QMessageBox.StandardButton.Cancel)
+        if msgBox.exec() == QMessageBox.StandardButton.Yes:
+            Cache.clear()
+            Cache.write_to_disk()
+            refresh_data()
+            self.refresh_parent()           
+        else:
+            pass      
 
 class PluginListWidget(QtWidgets.QWidget):
     def __init__(self):
