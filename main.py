@@ -20,7 +20,6 @@ from PySide6.QtWidgets import (
     QTabWidget,
     QWidget,
 )
-import PySide6.QtAsyncio as QtAsyncio
 import asyncio
 import aiohttp
 
