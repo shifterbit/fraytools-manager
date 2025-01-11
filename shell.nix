@@ -1,11 +1,10 @@
 { pkgs ? import <nixpkgs> {} }:
 let
   python-packages = ps: with ps; [
-    pandas
-    numpy
-    requests
     pyside6
     pygithub
+    aiohttp
+    qasync
     # other python packages
   ];
 in pkgs.mkShell {

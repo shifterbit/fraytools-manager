@@ -12,6 +12,7 @@ import random
 import platform
 from PySide6 import QtCore, QtWidgets, QtGui
 
+from qasync import QEventLoop, QApplication
 from PySide6.QtWidgets import (
     QAbstractScrollArea,
     QApplication,
@@ -37,10 +38,11 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 import github
-
+import PySide6.QtAsyncio as QtAsyncio
+import asyncio
+import aiohttp
 
 gh = Github()
-
 
 def _is_root(info: zipfile.ZipInfo) -> bool:
     if info.is_dir():
@@ -104,7 +106,7 @@ def cache_directory() -> Path:
 
 
 def download_location(id: str, tag: str):
-    return cache_directory().joinpath(f"{id}", f"{id}-{tag}")
+    return cache_directory().joinpath(f"{id}", f"{id}-{tag}.zip")
 
 
 class PluginConfig:
@@ -196,20 +198,37 @@ class FrayToolsPlugin:
 
         return FrayToolsPlugin(id, owner, repo_name, versions)
 
-    def download_version(
-        self, index: int, manifests: dict[str, PluginManifest] | None = None
-    ):
+    async def download_version(self, index: int):
         download_url = self.versions[index].url
         tag: str = self.versions[index].tag
         name: str = self.id
+        print(f"Starting Download of {name}-{tag}")
         download_path: Path = cache_directory().joinpath(f"{name}")
         if not download_path.exists():
             os.makedirs(download_path)
 
-        filename: str = str(download_path.joinpath(f"{name}-{tag}.zip"))
-        _, msg = urlretrieve(download_url, filename)
+        filename: str = str(download_location(name,tag))
+        async with aiohttp.ClientSession() as session:
+            async with session.get(download_url) as response:
+                with open(filename, mode="wb") as file:
+                    while True:
+                        chunk = await response.content.read()
+                        if not chunk:
+                            print(f"Finished Downloading {name}-{tag}")
+                            break
+                        file.write(chunk)
 
+    def install_version(
+        self, index: int, manifests: dict[str, PluginManifest] | None = None
+    ):
+        tag: str = self.versions[index].tag
+        name: str = self.id
         manifest_path = None
+        download_path: Path = cache_directory().joinpath(f"{name}")
+        if not download_path.exists():
+            os.makedirs(download_path)
+
+        filename: str = str(download_location(name, tag))
         if manifests is not None and self.id in manifests.keys():
             manifest_path = manifests[self.id].path
 
@@ -220,6 +239,7 @@ class FrayToolsPlugin:
             if not os.path.isdir(outpath):
                 os.makedirs(outpath)
             extract_zip_without_root(filename, str(outpath))
+        pass
 
 
 class PluginEntry:
@@ -407,7 +427,10 @@ def generate_plugin_entries() -> list[PluginEntry]:
 
 
 def refresh_data():
-    global manifest_map, plugin_entries, plugin_map, config_map, plugin_cache
+    global manifest_map, plugin_entries, plugin_map, config_map, plugin_cache, sources_config
+    sources_config = SourcesConfig.from_config("./sources.json")
+    config_map = generate_config_map(sources_config.plugins)
+    Cache.read_from_disk()
     print("Refreshing Plugin Sources...")
     plugins: list[FrayToolsPlugin] = []
     for config in config_map.values():
@@ -442,6 +465,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.tabs.addTab(self.plugin_list, "Plugins")
         self.tabs.addTab(self.settings_menu, "Settings")
         self.setCentralWidget(self.tabs)
+        self.setMinimumSize(QtCore.QSize(800, 600))
 
         self.show()
 
@@ -453,9 +477,6 @@ class PluginListWidget(QtWidgets.QWidget):
         self.refresh_data()
         self.create_plugin_list()
         self.add_installed_plugins()
-
-        menubar = QMenuBar(self)
-        menubar.show()
 
         self.layout = QtWidgets.QVBoxLayout(self)
         self.layout.addWidget(self.installed_items)
@@ -483,12 +504,13 @@ class PluginItemWidget(QtWidgets.QWidget):
 
         self.entry = entry
         self.tags = []
+        self.downloading_tags = set()
         self.selected_version = None
 
         if entry.plugin:
             self.tags = list(map(lambda v: v.tag, entry.plugin.versions))
             if entry.manifest and entry.manifest.version in self.tags:
-                self.selected_version = self.entry.manifest.version
+                self.selected_version = entry.manifest.version
 
         print([self.tags, entry.plugin])
         self.create_elements()
@@ -508,10 +530,14 @@ class PluginItemWidget(QtWidgets.QWidget):
 
         self.install_button = QPushButton("Install")
         self.install_button.setMaximumWidth(60)
+        self.install_button.pressed.connect(self.on_install)
         self.row.addWidget(self.install_button)
 
         self.download_button = QPushButton("Download")
-        self.download_button.setMaximumWidth(70)
+        self.download_button.setMaximumWidth(90)
+        self.download_button.pressed.connect(
+            lambda: asyncio.ensure_future(self.on_download())
+        )
         self.row.addWidget(self.download_button)
 
         self.installed_button = QPushButton("Installed")
@@ -524,22 +550,49 @@ class PluginItemWidget(QtWidgets.QWidget):
         self.selection_list.addItems(self.tags)
         self.selection_list.setMaximumWidth(120)
         if self.entry.manifest and self.entry.plugin and self.selected_version:
-            self.selection_list.setCurrentIndex(
-                self.tags.index(self.selected_version)
-            )
+            self.selection_list.setCurrentIndex(self.tags.index(self.selected_version))
 
         self.row.addWidget(self.selection_list)
 
         self.setLayout(self.row)
 
-    def on_select(self, index: int):
+    @QtCore.Slot()
+    def on_select(self, index: int) -> None:
         self.selected_version = self.tags[index]
         self.update_buttons()
 
+    @QtCore.Slot()
+    def on_install(self) -> None:
+        global manifest_map
+        if self.entry.plugin and self.selection_list:
+            index: int = self.selection_list.currentIndex()
+            self.entry.plugin.install_version(index, manifest_map)
+            refresh_data()
+            self.entry.manifest = manifest_map[self.entry.plugin.id]
+            self.update_buttons()
+
+    async def on_download(self) -> None:
+        global manifest_map
+        if (
+            self.entry.plugin
+            and self.selection_list
+            and self.selection_list.currentData() not in self.downloading_tags
+        ):
+            index: int = self.selection_list.currentIndex()
+            self.downloading_tags.add(self.selection_list.currentData())  
+            self.download_button.setEnabled(False)
+            self.download_button.setText("Downloading...")
+            await self.entry.plugin.download_version(index)
+            self.download_button.setEnabled(True)
+            self.download_button.setText("Download")
+            self.downloading_tags.remove(self.selection_list.currentData())
+            refresh_data()
+            self.update_buttons()
+
     def update_buttons(self) -> None:
         entry: PluginEntry = self.entry
-        manifest: PluginManifest = entry.manifest
-        plugin: PluginManifest = entry.plugin
+        manifest: PluginManifest | None = entry.manifest
+        plugin: FrayToolsPlugin | None = entry.plugin
 
         display_name: str = ""
         if entry.manifest:
@@ -551,9 +604,19 @@ class PluginItemWidget(QtWidgets.QWidget):
 
         self.text_label.setText(display_name)
 
-        is_installed:bool = (manifest and not plugin) or (plugin and manifest and manifest.version == self.selected_version)
+        is_installed: bool = (manifest is not None and plugin is None) or (
+            plugin is not None
+            and manifest is not None
+            and manifest.version == self.selected_version
+        )
         can_uninstall: bool = is_installed
-        can_download:bool = (not is_installed) and (plugin and not download_location(plugin.id, self.selected_version).exists())
+        can_download: bool = (
+            not is_installed
+            and plugin is not None
+            and self.selected_version is not None
+            and not download_location(plugin.id, self.selected_version).exists()
+        )
+
         can_install: bool = (not can_download) and (not is_installed)
 
         if is_installed:
@@ -587,22 +650,24 @@ class PluginItemWidget(QtWidgets.QWidget):
         self.text_label.update()
 
 
-if __name__ == "__main__":
+def main():
+    global config_map, manifest_map, plugin_entries, event_loop
     app = QtWidgets.QApplication([])
-    sources_config = SourcesConfig.from_config("./sources.json")
-    config_map = sources_config.generate_plugin_config_map()
-    manifest_map = generate_manifest_map(detect_plugins())
-    plugin_entries = generate_plugin_entries()
-    Cache.read_from_disk()
-    widget = MainWindow()
-    widget.resize(1000, 600)
-    widget.setMinimumSize(QtCore.QSize(800, 600))
-    widget.show()
+    
+    refresh_data()
 
-    sys.exit(app.exec())
+    event_loop = QEventLoop(app)
+    asyncio.set_event_loop(event_loop)
+
+    app_close_event = asyncio.Event()
+    app.aboutToQuit.connect(app_close_event.set)
+
+    main_window = MainWindow()
+    main_window.show()
+
+    with event_loop:
+        event_loop.run_until_complete(app_close_event.wait())
 
 
-# def main():
-
-
-# main()
+if __name__ == "__main__":
+   main()
