@@ -509,12 +509,11 @@ class MainWindow(QtWidgets.QMainWindow):
         super().__init__(*args, **kwargs)
 
         self.setWindowTitle("FrayTools Manager")
-        #   self.setGeometry(100, 100, 500, 300)
-
         self.tabs = QTabWidget(self)
         self.plugin_list = PluginListWidget()
         self.settings_menu = SettingsWidget(self)
         self.tabs.addTab(self.plugin_list, "Plugins")
+        self.tabs.addTab(QWidget(), "Sources")
         self.tabs.addTab(self.settings_menu, "Settings")
         self.setCentralWidget(self.tabs)
         self.setMinimumSize(QtCore.QSize(800, 600))
