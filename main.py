@@ -1,17 +1,16 @@
 import os
 from typing import Self, Type, Generator, TypedDict
-from os import path
+from os import path, remove
 import json
 from pathlib import Path
 from github import Github
-from urllib.request import urlretrieve
 import zipfile
 import pprint
 import sys
 import random
 import platform
 from PySide6 import QtCore, QtWidgets, QtGui
-
+import shutil
 from qasync import QEventLoop, QApplication
 from PySide6.QtWidgets import (
     QAbstractScrollArea,
@@ -477,17 +476,18 @@ class SettingsWidget(QtWidgets.QWidget):
         self.settings_items.setUniformItemSizes(True)
         self.settings_items.setSpacing(10)
         self.layout.addWidget(self.settings_items)
-        self.simple_settings_button("Cache Sources Cache", "Clears the sources cache")
-        self.simple_settings_button("Clear Download Cache", "Clears the sources cache")
-        self.simple_settings_button("Refresh", "Updates Plugin Metadata, Subject to Github API Limits")
+        self.simple_settings_button("Cache Sources Cache", "Clears the sources cache", self.clear_sources_cache)
+        self.simple_settings_button("Clear Download Cache", "Clears the sources cache", self.clear_download_cache)
+        self.simple_settings_button("Refresh", "Updates Plugin Metadata, Subject to Github API Limits", self.refresh_sources)
     
 
-    def simple_settings_button(self, button_text:str, description:str):
+    def simple_settings_button(self, button_text:str, description:str,on_press):
         widget = QWidget()
         widget.setMinimumHeight(40)
         row = QHBoxLayout()
         text = QLabel(description)
         button = QPushButton(button_text)
+        button.pressed.connect(on_press)
         row.addWidget(text)
         row.addWidget(button)
         widget.setLayout(row)
@@ -495,6 +495,23 @@ class SettingsWidget(QtWidgets.QWidget):
         item.setSizeHint(row.sizeHint())
         self.settings_items.addItem(item)
         self.settings_items.setItemWidget(item, widget)
+        
+    @QtCore.Slot()
+    def clear_sources_cache(self):
+        Cache.clear()
+        Cache.write_to_disk()
+        
+    @QtCore.Slot()
+    def clear_download_cache(self):
+        for p in cache_directory().iterdir():
+            if p.is_dir():
+                shutil.rmtree(p)
+                
+    @QtCore.Slot()
+    def refresh_sources(self):
+        Cache.clear()
+        refresh_data()
+        Cache.write_to_disk()
 
 
 
