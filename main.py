@@ -1,48 +1,31 @@
 import os
-from typing import Self, Type, Generator, TypedDict
-from os import path, remove
+from typing import Generator, TypedDict
 import json
 from pathlib import Path
 from github import Github
 import zipfile
-import pprint
-import sys
-import random
+
 import platform
-from PySide6 import QtCore, QtWidgets, QtGui
+from PySide6 import QtCore, QtWidgets
 import shutil
-from qasync import QEventLoop, QApplication
+from qasync import QEventLoop
 from PySide6.QtWidgets import (
-    QAbstractScrollArea,
-    QApplication,
     QComboBox,
-    QDialog,
-    QDialogButtonBox,
-    QGridLayout,
-    QGroupBox,
-    QFormLayout,
     QHBoxLayout,
     QLabel,
-    QLineEdit,
     QListWidget,
     QListWidgetItem,
-    QMenu,
-    QMenuBar,
     QMessageBox,
     QPushButton,
-    QSpacerItem,
-    QSpinBox,
     QTabWidget,
-    QTextEdit,
-    QVBoxLayout,
     QWidget,
 )
-import github
 import PySide6.QtAsyncio as QtAsyncio
 import asyncio
 import aiohttp
 
 gh = Github()
+
 
 def _is_root(info: zipfile.ZipInfo) -> bool:
     if info.is_dir():
@@ -207,7 +190,7 @@ class FrayToolsPlugin:
         if not download_path.exists():
             os.makedirs(download_path)
 
-        filename: str = str(download_location(name,tag))
+        filename: str = str(download_location(name, tag))
         async with aiohttp.ClientSession() as session:
             async with session.get(download_url) as response:
                 with open(filename, mode="wb") as file:
@@ -377,7 +360,7 @@ class Cache:
         return Cache.cache_to_plugin(plugin_cache[id])
 
     @staticmethod
-    def write_to_disk():
+    def write_to_disk() -> None:
         global plugin_cache
 
         json_str: str = json.dumps(plugin_cache)
@@ -471,8 +454,9 @@ class MainWindow(QtWidgets.QMainWindow):
 
         self.show()
 
+
 class SettingsWidget(QtWidgets.QWidget):
-    def __init__(self, parent:MainWindow) -> None:
+    def __init__(self, parent: MainWindow) -> None:
         super().__init__()
         self.parent_ref = parent
         self.layout = QtWidgets.QVBoxLayout(self)
@@ -480,12 +464,21 @@ class SettingsWidget(QtWidgets.QWidget):
         self.settings_items.setUniformItemSizes(True)
         self.settings_items.setSpacing(10)
         self.layout.addWidget(self.settings_items)
-        self.simple_settings_button("Clear Sources Cache", "Clears the sources cache", self.clear_sources_cache)
-        self.simple_settings_button("Clear Download Cache", "Clears the sources cache", self.clear_download_cache)
-        self.simple_settings_button("Refresh", "Updates Plugin Metadata, Subject to Github API Limits", self.refresh_sources)
-    
+        self.simple_settings_button(
+            "Clear Sources Cache", "Clears the sources cache", self.clear_sources_cache
+        )
+        self.simple_settings_button(
+            "Clear Download Cache",
+            "Clears the sources cache",
+            self.clear_download_cache,
+        )
+        self.simple_settings_button(
+            "Refresh",
+            "Updates Plugin Metadata, Subject to Github API Limits",
+            self.refresh_sources,
+        )
 
-    def simple_settings_button(self, button_text:str, description:str,on_press):
+    def simple_settings_button(self, button_text: str, description: str, on_press):
         widget = QWidget()
         widget.setMinimumHeight(40)
         row = QHBoxLayout()
@@ -502,52 +495,61 @@ class SettingsWidget(QtWidgets.QWidget):
 
     def refresh_parent(self):
         self.parent_ref.plugin_list.reload()
-        
+
     @QtCore.Slot()
     def clear_sources_cache(self):
-        msgBox:QMessageBox = QMessageBox()
+        msgBox: QMessageBox = QMessageBox()
         msgBox.setWindowTitle("Clear Sources Cache")
         msgBox.setText("Are you sure you want to clear the sources Cache?")
-        msgBox.setStandardButtons(QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
-        msgBox.setDefaultButton(QMessageBox.StandardButton.No) 
+        msgBox.setStandardButtons(
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
+        )
+        msgBox.setDefaultButton(QMessageBox.StandardButton.No)
         if msgBox.exec() == QMessageBox.StandardButton.Yes:
             Cache.clear()
             Cache.write_to_disk()
             refresh_data(False)
-            self.refresh_parent()    
+            self.refresh_parent()
         else:
             pass
-        
+
     @QtCore.Slot()
     def clear_download_cache(self):
-        msgBox:QMessageBox = QMessageBox()
+        msgBox: QMessageBox = QMessageBox()
         msgBox.setWindowTitle("Clear Download Cache")
         msgBox.setText("Are you sure you want to clear the download cache?")
-        msgBox.setStandardButtons(QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
-        msgBox.setDefaultButton(QMessageBox.StandardButton.No) 
+        msgBox.setStandardButtons(
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
+        )
+        msgBox.setDefaultButton(QMessageBox.StandardButton.No)
         if msgBox.exec() == QMessageBox.StandardButton.Yes:
-           for p in cache_directory().iterdir():
-               if p.is_dir():
-                   shutil.rmtree(p)
-           refresh_data(True)
-           self.refresh_parent()
+            for p in cache_directory().iterdir():
+                if p.is_dir():
+                    shutil.rmtree(p)
+            refresh_data(True)
+            self.refresh_parent()
         else:
             pass
-            
+
     @QtCore.Slot()
     def refresh_sources(self):
-        msgBox:QMessageBox = QMessageBox()
+        msgBox: QMessageBox = QMessageBox()
         msgBox.setWindowTitle("Refresh Sources")
-        msgBox.setText("Refreshing sources too often might result in hitting API limits, are you sure you want to proceed?")
-        msgBox.setStandardButtons(QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
+        msgBox.setText(
+            "Refreshing sources too often might result in hitting API limits, are you sure you want to proceed?"
+        )
+        msgBox.setStandardButtons(
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
+        )
         msgBox.setDefaultButton(QMessageBox.StandardButton.Cancel)
         if msgBox.exec() == QMessageBox.StandardButton.Yes:
             Cache.clear()
             Cache.write_to_disk()
             refresh_data()
-            self.refresh_parent()           
+            self.refresh_parent()
         else:
-            pass      
+            pass
+
 
 class PluginListWidget(QtWidgets.QWidget):
     def __init__(self):
@@ -571,7 +573,7 @@ class PluginListWidget(QtWidgets.QWidget):
             self.installed_items.addItem(item)
             self.installed_items.setItemWidget(item, row)
             item.setSizeHint(row.minimumSizeHint())
-            
+
     def reload(self):
         while self.installed_items.count() > 0:
             self.installed_items.takeItem(0)
@@ -663,7 +665,7 @@ class PluginItemWidget(QtWidgets.QWidget):
             and self.selection_list.currentData() not in self.downloading_tags
         ):
             index: int = self.selection_list.currentIndex()
-            self.downloading_tags.add(self.selection_list.currentData())  
+            self.downloading_tags.add(self.selection_list.currentData())
             self.download_button.setEnabled(False)
             self.download_button.setText("Downloading...")
             await self.entry.plugin.download_version(index)
@@ -737,7 +739,7 @@ class PluginItemWidget(QtWidgets.QWidget):
 def main():
     global config_map, manifest_map, plugin_entries, event_loop
     app = QtWidgets.QApplication([])
-    
+
     refresh_data()
 
     event_loop = QEventLoop(app)
@@ -754,4 +756,4 @@ def main():
 
 
 if __name__ == "__main__":
-   main()
+    main()
