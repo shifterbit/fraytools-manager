@@ -2,6 +2,7 @@ import os
 from typing import Generator, TypedDict
 import json
 from pathlib import Path
+from attr import dataclass
 from github import Github
 import zipfile
 
@@ -23,6 +24,7 @@ from PySide6.QtWidgets import (
 import asyncio
 import aiohttp
 from enum import Enum
+from dataclasses import dataclass
 
 gh = Github()
 
@@ -209,28 +211,26 @@ class SourcesConfig:
         )
 
 
+@dataclass
+class TemplateManifest:
+    id: str
+    path: str
+
+
+@dataclass
 class PluginManifest:
-    def __init__(
-        self,
-        name: str,
-        plugin_type: str,
-        id: str,
-        version: str,
-        description: str,
-        path: str,
-    ):
-        self.plugin_type = plugin_type
-        self.id = id
-        self.version = version
-        self.description = description
-        self.path = path
-        self.name = name
+    name: str
+    plugin_type: str
+    id: str
+    version: str
+    description: str
+    path: str
 
 
+@dataclass
 class FrayToolsAssetVersion:
-    def __init__(self, url: str, tag: str):
-        self.url = url
-        self.tag = tag
+    url: str
+    tag: str
 
 
 class FrayToolsAsset:
@@ -313,30 +313,37 @@ class FrayToolsAsset:
         pass
 
 
-class PluginEntry:
+class AssetEntry:
     def __init__(
         self,
-        manifest: PluginManifest | None,
+        plugin_manifest: PluginManifest | None,
+        template_manifest: TemplateManifest | None,
         config: AssetConfig | None,
-        plugin: FrayToolsAsset | None,
+        asset: FrayToolsAsset | None,
+        asset_type: FrayToolsAssetType,
     ):
-        self.plugin = plugin
-        self.manifest = manifest
+        self.asset = asset
         self.config = config
+        self.asset_type = asset_type
+        match asset_type:
+            case FrayToolsAssetType.Plugin:
+                self.manifest = plugin_manifest
+            case FrayToolsAssetType.Template:
+                self.manifest = plugin_manifest
 
     def display_name(self) -> str:
         display_name: str = ""
-        if self.manifest:
+        if self.manifest and self.asset_type == FrayToolsAssetType.Plugin:
             display_name = f"{self.manifest.name} ({self.manifest.id})"
-        elif self.plugin:
-            display_name = f"{self.plugin.id}"
+        elif self.asset:
+            display_name = f"{self.asset.id}"
         elif self.config:
             display_name = f"{self.config.id}"
         return display_name
 
     def is_installed(self, selected_version: str | None) -> bool:
-        return (self.manifest is not None and self.plugin is None) or (
-            self.plugin is not None
+        return (self.manifest is not None and self.asset is None) or (
+            self.asset is not None
             and self.manifest is not None
             and self.manifest.version == selected_version
         )
@@ -344,10 +351,10 @@ class PluginEntry:
     def can_download(self, selected_version: str | None) -> bool:
         return (
             not self.is_installed(selected_version)
-            and self.plugin is not None
+            and self.asset is not None
             and selected_version is not None
             and not download_location_file(
-                self.plugin.id, selected_version, FrayToolsAssetType.Plugin
+                self.asset.id, selected_version, FrayToolsAssetType.Plugin
             ).exists()
         )
 
@@ -386,18 +393,38 @@ def detect_plugins() -> list[PluginManifest]:
     return manifest_paths
 
 
-def generate_manifest_map(manifests: list[PluginManifest]) -> dict[str, PluginManifest]:
-    manifest_map: dict[str, PluginManifest] = dict()
+def detect_templates() -> list[TemplateManifest]:
+    template_manifests: list[TemplateManifest] = []
+    for filename in os.scandir(template_directory()):
+        if filename.is_dir():
+            template_path = Path(filename.path)
+            manifest_location = template_path.joinpath("library", "manifest.json")
+            if manifest_location.is_file():
+                with open(manifest_location) as manifest_data:
+                    config = json.load(manifest_data)
+                    manifest: TemplateManifest = TemplateManifest(
+                        config["resourceId"], path=str(template_path)
+                    )
+                    template_manifests.append(manifest)
+            else:
+                continue
+    return template_manifests
+
+
+def generate_manifest_map(
+    manifests: list[PluginManifest] | list[TemplateManifest],
+) -> dict:
+    manifest_map: dict[str, object] = dict()
     for manifest in manifests:
         manifest_map[manifest.id] = manifest
     return manifest_map
 
 
-def generate_plugin_map(plugins: list[FrayToolsAsset]) -> dict[str, FrayToolsAsset]:
-    plugin_map: dict[str, FrayToolsAsset] = dict()
-    for plugin in plugins:
-        plugin_map[plugin.id] = plugin
-    return plugin_map
+def generate_asset_map(assets: list[FrayToolsAsset]) -> dict[str, FrayToolsAsset]:
+    asset_map: dict[str, FrayToolsAsset] = dict()
+    for asset in assets:
+        asset_map[asset.id] = asset
+    return asset_map
 
 
 def generate_config_map(assets: list[AssetConfig]) -> dict[str, AssetConfig]:
@@ -426,11 +453,17 @@ class SourcesCache(TypedDict):
 
 
 sources_config: SourcesConfig
-config_map: dict[str, AssetConfig] = dict()
-manifest_map: dict[str, PluginManifest] = dict()
-plugin_entries: list[PluginEntry] = []
-plugin_map: dict[str, FrayToolsAsset] = dict()
 sources_cache: SourcesCache = SourcesCache(plugins=dict(), templates=dict())
+
+template_entries: list[AssetEntry] = []
+template_config_map: dict[str, AssetConfig] = dict()
+template_manifest_map: dict[str, TemplateManifest] = dict()
+template_map: dict[str, FrayToolsAsset] = dict()
+
+plugin_entries: list[AssetEntry] = []
+plugin_config_map: dict[str, AssetConfig] = dict()
+plugin_manifest_map: dict[str, PluginManifest] = dict()
+plugin_map: dict[str, FrayToolsAsset] = dict()
 
 
 class Cache:
@@ -527,37 +560,78 @@ class Cache:
                 print("Successfully read cache from disk.")
 
 
-def generate_plugin_entries() -> list[PluginEntry]:
-    global plugin_entries, config_map, manifest_map, plugin_map
-    installed_entries: list[PluginEntry] = list(
-        map(lambda m: PluginEntry(m, None, None), manifest_map.values())
-    )
+def generate_template_entries() -> list[AssetEntry]:
+    return generate_entries(FrayToolsAssetType.Template)
 
-    uninstalled_entries: list[PluginEntry] = list(
+
+def generate_plugin_entries() -> list[AssetEntry]:
+    return generate_entries(FrayToolsAssetType.Plugin)
+
+
+def generate_entries(asset_type: FrayToolsAssetType) -> list[AssetEntry]:
+    global template_entries, plugin_entries, plugin_config_map, plugin_manifest_map, plugin_map, template_map, template_manifest_map
+    installed_entries: list[AssetEntry] = list(
         map(
-            lambda c: PluginEntry(None, c, None),
-            (filter(lambda p: p.id not in manifest_map.keys(), config_map.values())),
+            lambda manifest: AssetEntry(
+                plugin_manifest=manifest,
+                template_manifest=None,
+                config=None,
+                asset=None,
+                asset_type=asset_type,
+            ),
+            plugin_manifest_map.values(),
         )
     )
+
+    uninstalled_entries: list[AssetEntry] = list(
+        map(
+            lambda config: AssetEntry(
+                plugin_manifest=None,
+                config=config,
+                template_manifest=None,
+                asset=None,
+                asset_type=asset_type,
+            ),
+            (
+                filter(
+                    lambda p: p.id not in plugin_manifest_map.keys(),
+                    plugin_config_map.values(),
+                )
+            ),
+        )
+    )
+    config_map = dict()
+    asset_map = dict()
+    match asset_type:
+        case FrayToolsAssetType.Plugin:
+            config_map = plugin_config_map
+            asset_map = plugin_map
+        case FrayToolsAssetType.Template:
+            config_map = template_config_map
+            asset_map = template_map
 
     for entry in installed_entries:
         if entry.manifest and entry.manifest.id in config_map.keys():
             entry.config = config_map[entry.manifest.id]
-        if entry.manifest and entry.manifest.id in plugin_map.keys():
-            entry.plugin = plugin_map[entry.manifest.id]
+        if entry.manifest and entry.manifest.id in asset_map.keys():
+            entry.asset = asset_map[entry.manifest.id]
 
     for entry in uninstalled_entries:
-        if entry.config and entry.config.id in plugin_map.keys():
-            entry.plugin = plugin_map[entry.config.id]
+        if entry.config and entry.config.id in asset_map.keys():
+            entry.asset = asset_map[entry.config.id]
 
-    entries: list[PluginEntry] = installed_entries + uninstalled_entries
-    plugin_entries = entries
+    entries: list[AssetEntry] = installed_entries + uninstalled_entries
+    match asset_type:
+        case FrayToolsAssetType.Plugin:
+            plugin_entries = entries
+        case FrayToolsAssetType.Template:
+            template_entries = entries
 
     return entries
 
 
-def refresh_data(fetch=False):
-    global manifest_map, plugin_entries, plugin_map, config_map, sources_cache, sources_config
+def refresh_data(fetch=False, asset_type: FrayToolsAssetType | None = None):
+    global plugin_manifest_map, plugin_entries, plugin_map, plugin_config_map, sources_cache, sources_config
     if app_directory().joinpath("sources.json").exists():
         sources_config = SourcesConfig.from_config(
             str(app_directory().joinpath("sources.json"))
@@ -566,28 +640,53 @@ def refresh_data(fetch=False):
         sources_config = SourcesConfig.generate_default_config()
         sources_config.write_config()
 
-    config_map = generate_config_map(sources_config.plugins)
     Cache.read_from_disk()
-    print("Refreshing Plugin Sources...")
-    assets: list[FrayToolsAsset] = []
-    for config in config_map.values():
-        plugin: FrayToolsAsset
-        if Cache.exists(config.id, FrayToolsAssetType.Plugin):
-            plugin = Cache.get(config.id, FrayToolsAssetType.Plugin)
-            print(f"Found {config.id} in cache")
-        elif fetch:
-            print(f"Could not find {config.id} in cache")
-            print(f"Fetching {config.id}")
-            plugin = FrayToolsAsset.fetch_data(config, FrayToolsAssetType.Plugin)
-            Cache.add(plugin, FrayToolsAssetType.Plugin)
-            print(f"Added {config.id} to cache")
-        else:
-            continue
-        assets.append(plugin)
+    plugin_config_map = generate_config_map(sources_config.plugins)
+    if asset_type is None or asset_type == FrayToolsAssetType.Plugin:
+        print("Refreshing Plugin Sources...")
+        assets: list[FrayToolsAsset] = []
+        for config in plugin_config_map.values():
+            template: FrayToolsAsset
+            if Cache.exists(config.id, FrayToolsAssetType.Plugin):
+                template = Cache.get(config.id, FrayToolsAssetType.Plugin)
+                print(f"Found {config.id} in cache")
+            elif fetch:
+                print(f"Could not find {config.id} in cache")
+                print(f"Fetching {config.id}")
+                template = FrayToolsAsset.fetch_data(config, FrayToolsAssetType.Plugin)
+                Cache.add(template, FrayToolsAssetType.Plugin)
+                print(f"Added {config.id} to cache")
+            else:
+                continue
+            assets.append(template)
+        plugin_manifest_map = generate_manifest_map(detect_plugins())
+        plugin_map = generate_asset_map(assets)
 
-    manifest_map = generate_manifest_map(detect_plugins())
-    plugin_map = generate_plugin_map(assets)
+    template_config_map = generate_config_map(sources_config.templates)
+    if asset_type is None or asset_type == FrayToolsAssetType.Template:
+        print("Refreshing Plugin Sources...")
+        assets: list[FrayToolsAsset] = []
+        for config in template_config_map.values():
+            template: FrayToolsAsset
+            if Cache.exists(config.id, FrayToolsAssetType.Template):
+                template = Cache.get(config.id, FrayToolsAssetType.Template)
+                print(f"Found {config.id} in cache")
+            elif fetch:
+                print(f"Could not find {config.id} in cache")
+                print(f"Fetching {config.id}")
+                template = FrayToolsAsset.fetch_data(
+                    config, FrayToolsAssetType.Template
+                )
+                Cache.add(template, FrayToolsAssetType.Plugin)
+                print(f"Added {config.id} to cache")
+            else:
+                continue
+            assets.append(template)
+        template_manifest_map = generate_manifest_map(detect_templates())
+        template_map = generate_asset_map(assets)
+
     plugin_entries = generate_plugin_entries()
+    template_entries = generate_template_entries()
     Cache.write_to_disk()
 
 
@@ -739,7 +838,7 @@ class PluginListWidget(QtWidgets.QWidget):
 
 
 class PluginItemWidget(QtWidgets.QWidget):
-    def __init__(self, entry: PluginEntry, parent=None):
+    def __init__(self, entry: AssetEntry, parent=None):
         super(PluginItemWidget, self).__init__(parent)
 
         self.entry = entry
@@ -747,8 +846,8 @@ class PluginItemWidget(QtWidgets.QWidget):
         self.downloading_tags = set()
         self.selected_version = None
 
-        if entry.plugin:
-            self.tags = list(map(lambda v: v.tag, entry.plugin.versions))
+        if entry.asset:
+            self.tags = list(map(lambda v: v.tag, entry.asset.versions))
             if entry.manifest and entry.manifest.version in self.tags:
                 self.selected_version = entry.manifest.version
 
@@ -789,7 +888,7 @@ class PluginItemWidget(QtWidgets.QWidget):
         self.selection_list.currentIndexChanged.connect(self.on_select)
         self.selection_list.addItems(self.tags)
         self.selection_list.setMaximumWidth(120)
-        if self.entry.manifest and self.entry.plugin and self.selected_version:
+        if self.entry.manifest and self.entry.asset and self.selected_version:
             self.selection_list.setCurrentIndex(self.tags.index(self.selected_version))
 
         self.row.addWidget(self.selection_list)
@@ -807,7 +906,7 @@ class PluginItemWidget(QtWidgets.QWidget):
         if self.entry.manifest:
             manifest: PluginManifest = self.entry.manifest
             msgBox.setWindowTitle(f"Uninstalling plugin")
-            if not self.entry.plugin or len(self.tags) == 0:
+            if not self.entry.asset or len(self.tags) == 0:
                 msgBox.setText(
                     f"Are you sure you want to remove {manifest.name} ({manifest.version})?\nIt is the only version available."
                 )
@@ -823,27 +922,28 @@ class PluginItemWidget(QtWidgets.QWidget):
                 path = Path(manifest.path)
                 if path.exists():
                     shutil.rmtree(path)
-                    self.update_buttons()
-            else:
-                pass
-            pass
+                    self.entry.manifest = None
+        refresh_data()
+        self.update_buttons()
 
     @QtCore.Slot()
     def on_install(self) -> None:
-        global manifest_map
-        if self.entry.plugin and self.selection_list:
+        global plugin_manifest_map
+        if self.entry.asset and self.selection_list:
             index: int = self.selection_list.currentIndex()
-            self.entry.plugin.install_version(
-                index, asset_type=FrayToolsAssetType.Plugin, manifests=manifest_map
+            self.entry.asset.install_version(
+                index,
+                asset_type=FrayToolsAssetType.Plugin,
+                manifests=plugin_manifest_map,
             )
             refresh_data()
-            self.entry.manifest = manifest_map[self.entry.plugin.id]
+            self.entry.manifest = plugin_manifest_map[self.entry.asset.id]
             self.update_buttons()
 
     async def on_download(self) -> None:
-        global manifest_map
+        global plugin_manifest_map
         if (
-            self.entry.plugin
+            self.entry.asset
             and self.selection_list
             and self.selection_list.currentData() not in self.downloading_tags
         ):
@@ -851,7 +951,7 @@ class PluginItemWidget(QtWidgets.QWidget):
             self.downloading_tags.add(self.selection_list.currentData())
             self.download_button.setEnabled(False)
             self.download_button.setText("Downloading...")
-            await self.entry.plugin.download_version(index)
+            await self.entry.asset.download_version(index)
             self.download_button.setEnabled(True)
             self.download_button.setText("Download")
             self.downloading_tags.remove(self.selection_list.currentData())
@@ -859,8 +959,8 @@ class PluginItemWidget(QtWidgets.QWidget):
             self.update_buttons()
 
     def update_buttons(self) -> None:
-        entry: PluginEntry = self.entry
-        plugin: FrayToolsAsset | None = entry.plugin
+        entry: AssetEntry = self.entry
+        plugin: FrayToolsAsset | None = entry.asset
 
         self.text_label.setText(self.entry.display_name())
 
@@ -874,6 +974,7 @@ class PluginItemWidget(QtWidgets.QWidget):
             self.download_button.hide()
 
         if self.entry.can_uninstall(self.selected_version):
+            print(f"Can Uninstall {self.selected_version}")
             self.uninstall_button.show()
         else:
             self.uninstall_button.hide()
@@ -896,8 +997,6 @@ class PluginItemWidget(QtWidgets.QWidget):
 
 
 def main():
-    global config_map, manifest_map, plugin_entries, event_loop
-
     app = QtWidgets.QApplication([])
 
     refresh_data()
