@@ -425,7 +425,7 @@ def generate_plugin_entries() -> list[PluginEntry]:
     return entries
 
 
-def refresh_data():
+def refresh_data(fetch=True):
     global manifest_map, plugin_entries, plugin_map, config_map, plugin_cache, sources_config
     sources_config = SourcesConfig.from_config("./sources.json")
     config_map = generate_config_map(sources_config.plugins)
@@ -437,12 +437,14 @@ def refresh_data():
         if Cache.exists(config.id):
             plugin = Cache.get(config.id)
             print(f"Found {config.id} in cache")
-        else:
+        elif fetch:
             print(f"Could not find {config.id} in cache")
             print(f"Fetching {config.id}")
             plugin = FrayToolsPlugin.fetch_data(config)
             Cache.add(plugin)
             print(f"Added {config.id} to cache")
+        else:
+            continue
         plugins.append(plugin)
 
     manifest_map = generate_manifest_map(detect_plugins())
@@ -460,7 +462,7 @@ class MainWindow(QtWidgets.QMainWindow):
 
         self.tabs = QTabWidget(self)
         self.plugin_list = PluginListWidget()
-        self.settings_menu = SettingsWidget()
+        self.settings_menu = SettingsWidget(self)
         self.tabs.addTab(self.plugin_list, "Plugins")
         self.tabs.addTab(self.settings_menu, "Settings")
         self.setCentralWidget(self.tabs)
@@ -469,14 +471,15 @@ class MainWindow(QtWidgets.QMainWindow):
         self.show()
 
 class SettingsWidget(QtWidgets.QWidget):
-    def __init__(self) -> None:
+    def __init__(self, parent:MainWindow) -> None:
         super().__init__()
+        self.parent_ref = parent
         self.layout = QtWidgets.QVBoxLayout(self)
         self.settings_items = QListWidget()
         self.settings_items.setUniformItemSizes(True)
         self.settings_items.setSpacing(10)
         self.layout.addWidget(self.settings_items)
-        self.simple_settings_button("Cache Sources Cache", "Clears the sources cache", self.clear_sources_cache)
+        self.simple_settings_button("Clear Sources Cache", "Clears the sources cache", self.clear_sources_cache)
         self.simple_settings_button("Clear Download Cache", "Clears the sources cache", self.clear_download_cache)
         self.simple_settings_button("Refresh", "Updates Plugin Metadata, Subject to Github API Limits", self.refresh_sources)
     
@@ -495,23 +498,31 @@ class SettingsWidget(QtWidgets.QWidget):
         item.setSizeHint(row.sizeHint())
         self.settings_items.addItem(item)
         self.settings_items.setItemWidget(item, widget)
+
+    def refresh_parent(self):
+        self.parent_ref.plugin_list.reload()
         
     @QtCore.Slot()
     def clear_sources_cache(self):
         Cache.clear()
         Cache.write_to_disk()
+        refresh_data(False)
+        self.refresh_parent()
         
     @QtCore.Slot()
     def clear_download_cache(self):
         for p in cache_directory().iterdir():
             if p.is_dir():
                 shutil.rmtree(p)
+        refresh_data(True)
+        self.refresh_parent()
                 
     @QtCore.Slot()
     def refresh_sources(self):
         Cache.clear()
-        refresh_data()
         Cache.write_to_disk()
+        refresh_data()
+        self.refresh_parent()
 
 
 
@@ -538,6 +549,12 @@ class PluginListWidget(QtWidgets.QWidget):
             self.installed_items.addItem(item)
             self.installed_items.setItemWidget(item, row)
             item.setSizeHint(row.minimumSizeHint())
+            
+    def reload(self):
+        while self.installed_items.count() > 0:
+            self.installed_items.takeItem(0)
+        self.add_installed_plugins()
+        self.update()
 
     def refresh_data(self):
         refresh_data()
@@ -558,7 +575,6 @@ class PluginItemWidget(QtWidgets.QWidget):
             if entry.manifest and entry.manifest.version in self.tags:
                 self.selected_version = entry.manifest.version
 
-        print([self.tags, entry.plugin])
         self.create_elements()
         self.update_buttons()
 
