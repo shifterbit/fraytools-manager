@@ -1,17 +1,17 @@
-from json.decoder import JSONDecodeError
 import os
 import pprint
 from re import template
-from typing import IO, Generator, TypedDict, assert_type, final
+from typing import IO, Generator, TypedDict
 import json
 from pathlib import Path
 from attr import dataclass
-from github import Github, GithubException, RateLimitExceededException
+import githubkit
 import zipfile
 
 import platform
 from PySide6 import QtCore, QtWidgets
 import shutil
+from githubkit.exception import RateLimitExceeded
 from qasync import QEventLoop
 from PySide6.QtWidgets import (
     QComboBox,
@@ -30,7 +30,8 @@ import aiohttp
 from enum import Enum
 from dataclasses import dataclass
 
-gh = Github()
+gh = githubkit.GitHub()
+
 
 class InvalidSourceError(ValueError):
     pass
@@ -316,21 +317,23 @@ class FrayToolsAsset:
         self.asset_type = asset_type
 
     @staticmethod
-    def fetch_data(config: AssetConfig | AssetConfig, asset_type: FrayToolsAssetType):
+    async def fetch_data(
+        config: AssetConfig | AssetConfig, asset_type: FrayToolsAssetType
+    ):
         global gh
         id = config.id
         owner = config.owner
-        repo_name = config.repo
-        repo = gh.get_repo(f"{owner}/{repo_name}")
-        releases = repo.get_releases()
+        repo = config.repo
+        releases = await gh.rest.repos.async_list_releases(owner, repo)
         versions: list[FrayToolsAssetVersion] = []
-        for release in releases:
-            asset_url = release.assets[0].browser_download_url
+
+        for release in releases.parsed_data:
             tag = release.tag_name
+            asset_url = release.assets[0].browser_download_url
             plugin_version = FrayToolsAssetVersion(asset_url, tag)
             versions.append(plugin_version)
 
-        return FrayToolsAsset(asset_type, id, owner, repo_name, versions)
+        return FrayToolsAsset(asset_type, id, owner, repo, versions)
 
     async def download_version(self, index: int):
         download_url = self.versions[index].url
@@ -649,7 +652,6 @@ class Cache:
             if cache_file.exists() and cache_file.is_file:
                 with open(cache_file, "r") as f:
                     print("Reading cache from disk...")
-                    print(cache_file)
                     sources_cache = json.loads(f.read())
                     print("Successfully read cache from disk.")
         except IOError:
@@ -751,11 +753,47 @@ def generate_entries(asset_type: FrayToolsAssetType) -> list[AssetEntry]:
     return entries
 
 
-def refresh_data(fetch=False, asset_type: FrayToolsAssetType | None = None):
+def load_cached_asset_sources(asset_type: FrayToolsAssetType):
+    global plugin_manifest_map, plugin_map, plugin_config_map, sources_cache
+    global template_manifest_map, template_map, template_config_map
+    asset_name = "Asset"
+    detect_fn = lambda: []
+    cfg_map = dict()
+    match asset_type:
+        case FrayToolsAssetType.Plugin:
+            plugin_config_map = generate_config_map(sources_config.plugins)
+            asset_name = "Plugin"
+            detect_fn = detect_plugins
+            cfg_map = plugin_config_map
+        case FrayToolsAssetType.Template:
+            template_config_map = generate_config_map(sources_config.templates)
+            asset_name = "Template"
+            detect_fn = detect_templates
+            cfg_map = template_config_map
+    Cache.read_from_disk()
+    print(f"Loading Cached {asset_name} Sources...")
+    assets: list[FrayToolsAsset] = []
+    for config in cfg_map.values():
+        asset: FrayToolsAsset
+        if Cache.exists(config.id, asset_type):
+            asset = Cache.get(config.id, asset_type)
+            print(f"Found {config.id} in cache")
+            assets.append(asset)
+
+    match asset_type:
+        case FrayToolsAssetType.Plugin:
+            plugin_manifest_map = generate_manifest_map(detect_fn())
+            plugin_map = generate_asset_map(assets)
+        case FrayToolsAssetType.Template:
+            template_manifest_map = generate_manifest_map(detect_fn())
+            template_map = generate_asset_map(assets)
+    Cache.write_to_disk()
+
+
+def reload_cached_data(asset_type: FrayToolsAssetType | None = None):
     global sources_cache, sources_config
     global plugin_manifest_map, plugin_entries, plugin_map, plugin_config_map
     global template_manifest_map, template_entries, template_map, template_config_map
-
     if app_directory().joinpath("sources.json").exists():
         sources_config = SourcesConfig.from_config(
             str(app_directory().joinpath("sources.json"))
@@ -763,56 +801,74 @@ def refresh_data(fetch=False, asset_type: FrayToolsAssetType | None = None):
     else:
         sources_config = SourcesConfig.generate_default_config()
         sources_config.write_config()
-
     Cache.read_from_disk()
-    plugin_config_map = generate_config_map(sources_config.plugins)
     if asset_type is None or asset_type == FrayToolsAssetType.Plugin:
-        print("Refreshing Plugin Sources...")
-        plugin_assets: list[FrayToolsAsset] = []
-        for config in plugin_config_map.values():
-            template: FrayToolsAsset
-            if Cache.exists(config.id, FrayToolsAssetType.Plugin):
-                template = Cache.get(config.id, FrayToolsAssetType.Plugin)
-                print(f"Found {config.id} in cache")
-            elif fetch:
-                print(f"Could not find {config.id} in cache")
-                print(f"Fetching {config.id}")
-                template = FrayToolsAsset.fetch_data(config, FrayToolsAssetType.Plugin)
-                Cache.add(template, FrayToolsAssetType.Plugin)
-                print(f"Added {config.id} to cache")
-            else:
-                continue
-            plugin_assets.append(template)
-        plugin_manifest_map = generate_manifest_map(detect_plugins())
-        plugin_map = generate_asset_map(plugin_assets)
-
-    template_config_map = generate_config_map(sources_config.templates)
+        load_cached_asset_sources(FrayToolsAssetType.Plugin)
     if asset_type is None or asset_type == FrayToolsAssetType.Template:
-        print("Refreshing Template Sources...")
-        template_assets: list[FrayToolsAsset] = []
-        for config in template_config_map.values():
-            template: FrayToolsAsset
-            if Cache.exists(config.id, FrayToolsAssetType.Template):
-                template = Cache.get(config.id, FrayToolsAssetType.Template)
-                print(f"Found {config.id} in cache")
-            elif fetch:
-                print(f"Could not find {config.id} in cache")
-                print(f"Fetching {config.id}")
-                template = FrayToolsAsset.fetch_data(
-                    config, FrayToolsAssetType.Template
-                )
-                Cache.add(template, FrayToolsAssetType.Template)
-                print(f"Added {config.id} to cache")
-            else:
-                continue
-            template_assets.append(template)
-        template_manifest_map = generate_manifest_map(detect_templates())
-        template_map = generate_asset_map(template_assets)
+        load_cached_asset_sources(FrayToolsAssetType.Template)
+    
 
     plugin_entries = generate_plugin_entries()
     template_entries = generate_template_entries()
 
     Cache.write_to_disk()
+
+async def fetch_asset_sources(asset_type: FrayToolsAssetType):
+    global plugin_manifest_map, plugin_map
+    global template_manifest_map, template_map
+    asset_name = "Asset"
+    detect_fn = lambda: []
+    cfg_map = dict()
+    match asset_type:
+        case FrayToolsAssetType.Plugin:
+            asset_name = "Plugin"
+            detect_fn = detect_plugins
+            cfg_map = plugin_config_map
+        case FrayToolsAssetType.Template:
+            asset_name = "Template"
+            detect_fn = detect_templates
+            cfg_map = template_config_map
+
+    print(f"Refreshing {asset_name} Sources...")
+    assets: list[FrayToolsAsset] = []
+    for config in cfg_map.values():
+        asset: FrayToolsAsset
+        print(f"Fetching {config.id}")
+        asset = await FrayToolsAsset.fetch_data(config, asset_type)
+        Cache.add(asset, asset_type)
+        print(f"Added {config.id} to cache")
+        assets.append(asset)
+
+    match asset_type:
+        case FrayToolsAssetType.Plugin:
+            plugin_manifest_map = generate_manifest_map(detect_fn())
+            plugin_map = generate_asset_map(assets)
+        case FrayToolsAssetType.Template:
+            template_manifest_map = generate_manifest_map(detect_fn())
+            template_map = generate_asset_map(assets)
+
+
+async def refresh_data_async(asset_type: FrayToolsAssetType | None = None):
+    global sources_cache, sources_config
+    global plugin_manifest_map, plugin_entries, plugin_map, plugin_config_map
+    global template_manifest_map, template_entries, template_map, template_config_map
+    reload_cached_data(asset_type)
+    if asset_type is None or asset_type == FrayToolsAssetType.Plugin:
+        await fetch_asset_sources(FrayToolsAssetType.Plugin)
+    if asset_type is None or asset_type == FrayToolsAssetType.Template:
+        await fetch_asset_sources(FrayToolsAssetType.Template)
+    Cache.write_to_disk()
+
+    plugin_entries = generate_plugin_entries()
+    template_entries = generate_template_entries()
+    
+
+def refresh_data_ui_offline(widget: QtWidgets.QWidget):
+    try:
+        reload_cached_data()
+    except (IOError, ValueError) as e:
+        QErrorMessage(widget).showMessage(str(e))
+        
 
 
 class MainWindow(QtWidgets.QMainWindow):
@@ -830,18 +886,9 @@ class MainWindow(QtWidgets.QMainWindow):
         self.tabs.addTab(self.settings_menu, "Settings")
         self.setCentralWidget(self.tabs)
         self.setMinimumSize(QtCore.QSize(800, 600))
-        
-        self.show()
-        try:
-            refresh_data()
-            self.plugin_list.reload()
-            self.template_list.reload()
-        except JSONDecodeError as e:
-            QErrorMessage(self).showMessage(f"Error Reading Config: {e}","Config Error")
-        
-            
-            
-        
+        refresh_data_ui_offline(self)
+        self.plugin_list.reload()
+        self.template_list.reload()
 
 
 class SettingsWidget(QtWidgets.QWidget):
@@ -864,7 +911,7 @@ class SettingsWidget(QtWidgets.QWidget):
         self.simple_settings_button(
             "Refresh",
             "Updates Plugin Metadata, Subject to Github API Limits",
-            self.refresh_sources,
+            lambda: asyncio.ensure_future(self.refresh_sources()),
         )
 
     def simple_settings_button(self, button_text: str, description: str, on_press):
@@ -898,7 +945,8 @@ class SettingsWidget(QtWidgets.QWidget):
         if msgBox.exec() == QMessageBox.StandardButton.Yes:
             Cache.clear()
             Cache.write_to_disk()
-            refresh_data()
+            reload_cached_data()
+            refresh_data_ui_offline(self)
             self.refresh_parent()
         else:
             pass
@@ -916,13 +964,13 @@ class SettingsWidget(QtWidgets.QWidget):
             for p in cache_directory().iterdir():
                 if p.is_dir():
                     shutil.rmtree(p)
-            refresh_data()
+            reload_cached_data()
             self.refresh_parent()
         else:
             pass
 
     @QtCore.Slot()
-    def refresh_sources(self):
+    async def refresh_sources(self):
         msgBox: QMessageBox = QMessageBox(self)
         msgBox.setWindowTitle("Refresh Sources")
         msgBox.setText(
@@ -936,12 +984,10 @@ class SettingsWidget(QtWidgets.QWidget):
             try:
                 Cache.clear()
                 Cache.write_to_disk()
-                refresh_data(True)
-            except RateLimitExceededException as e:
-                refresh_data()
+                await refresh_data_async()
+            except RateLimitExceeded as e:
                 QErrorMessage(self).showMessage("You've hit the GitHub API Rate Limit!")
-            except GithubException:
-                refresh_data()
+            except RequestError:
                 QErrorMessage(self).showMessage(
                     "Something went wrong when trying to access the Github API!"
                 )
@@ -998,7 +1044,7 @@ class AssetListWidget(QtWidgets.QWidget):
         self.update()
 
     def refresh_data(self):
-        refresh_data()
+        reload_cached_data()
         self.create_asset_list()
 
 
@@ -1099,13 +1145,13 @@ class AssetItemWidget(QtWidgets.QWidget):
         except IOError as e:
             QErrorMessage(self).showMessage(f"Something went wrong:\n {e}")
         finally:
-           refresh_data()
-           self.update_buttons()
+            refresh_data_ui_offline(self)
+            self.update_buttons()
 
     @QtCore.Slot()
     def on_install(self) -> None:
         global plugin_manifest_map, template_manifest_map
-        try: 
+        try:
             if self.entry.asset and self.selection_list:
                 index: int = self.selection_list.currentIndex()
                 plugin_manifests = None
@@ -1120,7 +1166,9 @@ class AssetItemWidget(QtWidgets.QWidget):
                     plugin_manifests=plugin_manifests,
                     template_manifests=template_manifests,
                 )
-                refresh_data()
+                self.install_button.setText("Installing")
+                self.installed_button.setEnabled(False)
+                reload_cached_data()
                 if self.asset_type == FrayToolsAssetType.Plugin:
                     self.entry.manifest = plugin_manifest_map[self.entry.asset.id]
                 elif self.asset_type == FrayToolsAssetType.Template:
@@ -1130,24 +1178,25 @@ class AssetItemWidget(QtWidgets.QWidget):
         except BaseException as e:
             QErrorMessage(self).showMessage(f"{e}")
         finally:
+            self.install_button.setText("Install")
+            self.install_button.setEnabled(True)
             self.update_buttons()
 
     async def on_download(self) -> None:
         global plugin_manifest_map
         if (
-                self.entry.asset
-                and self.selection_list
-                and self.selection_list.currentData() not in self.downloading_tags
+            self.entry.asset
+            and self.selection_list
+            and self.selection_list.currentData() not in self.downloading_tags
         ):
             try:
-                 index: int = self.selection_list.currentIndex()
-                 self.downloading_tags.add(self.selection_list.currentData())
-                 self.download_button.setEnabled(False)
-                 self.download_button.setText("Downloading...")
-                 await self.entry.asset.download_version(index)
-
-                 refresh_data()
-                 self.update_buttons()
+                index: int = self.selection_list.currentIndex()
+                self.downloading_tags.add(self.selection_list.currentData())
+                self.download_button.setEnabled(False)
+                self.download_button.setText("Downloading...")
+                await self.entry.asset.download_version(index)
+                reload_cached_data()
+                self.update_buttons()
             finally:
                 self.download_button.setEnabled(True)
                 self.download_button.setText("Download")
@@ -1200,7 +1249,6 @@ def main():
 
     app_close_event = asyncio.Event()
     app.aboutToQuit.connect(app_close_event.set)
-
     main_window = MainWindow()
     main_window.show()
 

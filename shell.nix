@@ -5,6 +5,7 @@ let
     pygithub
     aiohttp
     qasync
+    githubkit
     # other python packages
   ];
 in pkgs.mkShell {
