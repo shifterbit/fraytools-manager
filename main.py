@@ -1,6 +1,5 @@
 import os
 import pprint
-from re import template
 from typing import IO, Generator, TypedDict
 import json
 from pathlib import Path
@@ -424,24 +423,20 @@ class AssetEntry:
         return display_name
 
     def is_installed(self, selected_version: str | None) -> bool:
-        return (self.manifest is not None and self.asset is None) or (
-            self.asset is not None
-            and self.manifest is not None
+        return (
+            self.manifest is not None and (self.asset is None or self.config is None)
+        ) or (
+            self.manifest is not None
+            and self.asset is not None
             and (
-                self.asset_type == FrayToolsAssetType.Template
-                or (
-                    self.asset_type == FrayToolsAssetType.Plugin
-                    and self.manifest.version == selected_version
-                )
+                self.asset_type == FrayToolsAssetType.Plugin
+                and self.manifest.version == selected_version
             )
         )
 
     def can_download(self, selected_version: str | None) -> bool:
         return (
-            (
-                self.asset_type == FrayToolsAssetType.Template
-                or not self.is_installed(selected_version)
-            )
+            not self.is_installed(selected_version)
             and self.asset is not None
             and selected_version is not None
             and not download_location_file(
@@ -453,8 +448,15 @@ class AssetEntry:
         return self.is_installed(selected_version)
 
     def can_install(self, selected_version: str | None) -> bool:
-        return not (
-            self.can_download(selected_version) or self.is_installed(selected_version)
+        # return not (
+        #     self.can_download(selected_version) or self.is_installed(selected_version)
+        # )
+        return (
+            download_location_file(
+                self.config.id, selected_version, self.asset_type
+            ).exists()
+            and not self.can_download(selected_version)
+            and not self.is_installed(selected_version)
         )
 
 
@@ -733,6 +735,7 @@ def generate_entries(asset_type: FrayToolsAssetType) -> list[AssetEntry]:
             ),
         )
     )
+
     for entry in installed_entries:
         if entry.manifest and entry.manifest.id in config_map.keys():
             entry.config = config_map[entry.manifest.id]
@@ -806,12 +809,12 @@ def reload_cached_data(asset_type: FrayToolsAssetType | None = None):
         load_cached_asset_sources(FrayToolsAssetType.Plugin)
     if asset_type is None or asset_type == FrayToolsAssetType.Template:
         load_cached_asset_sources(FrayToolsAssetType.Template)
-    
 
     plugin_entries = generate_plugin_entries()
     template_entries = generate_template_entries()
 
     Cache.write_to_disk()
+
 
 async def fetch_asset_sources(asset_type: FrayToolsAssetType):
     global plugin_manifest_map, plugin_map
@@ -861,14 +864,13 @@ async def refresh_data_async(asset_type: FrayToolsAssetType | None = None):
 
     plugin_entries = generate_plugin_entries()
     template_entries = generate_template_entries()
-    
+
 
 def refresh_data_ui_offline(widget: QtWidgets.QWidget):
     try:
         reload_cached_data()
     except (IOError, ValueError) as e:
         QErrorMessage(widget).showMessage(str(e))
-        
 
 
 class MainWindow(QtWidgets.QMainWindow):
