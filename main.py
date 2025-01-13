@@ -3,7 +3,7 @@ import pprint
 from typing import IO, Generator, TypedDict
 import json
 from pathlib import Path
-from PySide6.QtGui import QAction
+from PySide6.QtGui import QAction, Qt
 from attr import dataclass
 import githubkit
 import zipfile
@@ -1229,6 +1229,8 @@ class AssetItemWidget(QtWidgets.QWidget):
         self.downloading_tags = set()
         self.selected_version = None
         self.asset_type = asset_type
+        self.setContextMenuPolicy(Qt.ContextMenuPolicy.ActionsContextMenu)
+
 
         if entry.asset and entry.config:
             self.tags = list(map(lambda v: v.tag, entry.asset.versions))
@@ -1247,6 +1249,21 @@ class AssetItemWidget(QtWidgets.QWidget):
         self.row = QHBoxLayout()
         self.row.setSpacing(0)
         self.setMinimumHeight(30)
+        self.refresh_action = QAction("Refresh Source", self)  
+        self.delete_download_action = QAction("Delete Download Cache", self)
+        self.remove_source_action = QAction("Remove Source", self)
+        
+        self.download_action = QAction("Download", self)
+        self.install_action = QAction("Install", self)
+        self.uninstall_action = QAction("Uninstall", self)
+        
+        self.addAction(self.refresh_action)
+        self.addAction(self.delete_download_action)
+        self.addAction(self.remove_source_action)
+
+        self.addAction(self.download_action)
+        self.addAction(self.install_action)
+        self.addAction(self.uninstall_action)
 
         self.text_label = QLabel("")
         self.row.addWidget(self.text_label, alignment=QtCore.Qt.AlignmentFlag.AlignLeft)
@@ -1387,19 +1404,25 @@ class AssetItemWidget(QtWidgets.QWidget):
             self.installed_button.hide()
         if self.entry.can_download(self.selected_version):
             self.download_button.show()
+            self.download_action.setEnabled(True)
         else:
             self.download_button.hide()
+            self.download_action.setEnabled(False)
 
         if self.entry.can_uninstall(self.selected_version):
             print(f"Can Uninstall {self.selected_version}")
             self.uninstall_button.show()
+            self.uninstall_action.setEnabled(True)
         else:
             self.uninstall_button.hide()
+            self.uninstall_action.setEnabled(False)
 
         if self.entry.can_install(self.selected_version):
             self.install_button.show()
+            self.install_action.setEnabled(True)
         else:
             self.install_button.hide()
+            self.install_action.setEnabled(False)
 
         if plugin:
             self.selection_list.show()
