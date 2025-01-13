@@ -3,6 +3,7 @@ import pprint
 from typing import IO, Generator, TypedDict
 import json
 from pathlib import Path
+from PySide6.QtGui import QAction
 from attr import dataclass
 import githubkit
 import zipfile
@@ -929,14 +930,29 @@ class MainWindow(QtWidgets.QMainWindow):
         self.tabs.addTab(self.settings_menu, "Settings")
         self.setCentralWidget(self.tabs)
         self.setMinimumSize(QtCore.QSize(800, 600))
+        
         sources_menu = self.menuBar().addMenu("Sources")
-        sources_menu.addAction("Refresh Sources")
-        sources_menu.addAction("New Source...")
+        add_sources_action = QAction("Add Source...", self)
+        add_sources_action.triggered.connect(lambda: SourceEntryDialogue(self).exec())
+        
+        fetch_sources_action = QAction("Fetch Sources", self)
+        fetch_sources_action.triggered.connect(lambda: self.settings_menu.refresh_sources())
+        
+        sources_menu.addAction(add_sources_action)
+        sources_menu.addAction(fetch_sources_action)
+        
         cache_menu  = self.menuBar().addMenu("Cache")
-        cache_menu.addAction("Clear Sources Cache")
-        cache_menu.addAction("Clear Download Cache")
+        
+        clear_sources_action = QAction("Clear Sources Cache", self)
+        clear_sources_action.triggered.connect(lambda: self.settings_menu.clear_sources_cache())
+        
+        delete_downloads_action = QAction("Delete Dowload Cache", self)
+        delete_downloads_action.triggered.connect(lambda: self.settings_menu.clear_download_cache())
+        
+        cache_menu.addAction(clear_sources_action)
+        cache_menu.addAction(delete_downloads_action)
         self.reload()
-        # SourceEntryDialogue(self,self).exec()
+
     def reload(self):
         refresh_data_ui_offline(self)
         self.plugin_list.reload()
@@ -945,7 +961,7 @@ class MainWindow(QtWidgets.QMainWindow):
 
 
 class SourceEntryDialogue(QtWidgets.QDialog):
-    def __init__(self, parent, main_menu: MainWindow):
+    def __init__(self, main_menu: MainWindow):
         super().__init__()
         self.asset_type: FrayToolsAssetType = FrayToolsAssetType.Plugin
         self.asset_config: AssetConfig = AssetConfig(id="", owner="", repo="")
