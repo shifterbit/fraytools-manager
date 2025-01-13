@@ -22,6 +22,7 @@ from PySide6.QtWidgets import (
     QLineEdit,
     QListWidget,
     QListWidgetItem,
+    QMenuBar,
     QMessageBox,
     QPushButton,
     QTabWidget,
@@ -916,6 +917,8 @@ class MainWindow(QtWidgets.QMainWindow):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
 
+        menuBar = QMenuBar(self)
+
         self.setWindowTitle("FrayTools Manager")
         self.tabs = QTabWidget(self)
         self.plugin_list = AssetListWidget(FrayToolsAssetType.Plugin)
@@ -926,8 +929,14 @@ class MainWindow(QtWidgets.QMainWindow):
         self.tabs.addTab(self.settings_menu, "Settings")
         self.setCentralWidget(self.tabs)
         self.setMinimumSize(QtCore.QSize(800, 600))
+        sources_menu = self.menuBar().addMenu("Sources")
+        sources_menu.addAction("Refresh Sources")
+        sources_menu.addAction("New Source...")
+        cache_menu  = self.menuBar().addMenu("Cache")
+        cache_menu.addAction("Clear Sources Cache")
+        cache_menu.addAction("Clear Download Cache")
         self.reload()
-        SourceEntryDialogue(self,self).exec()
+        # SourceEntryDialogue(self,self).exec()
     def reload(self):
         refresh_data_ui_offline(self)
         self.plugin_list.reload()
