@@ -1138,7 +1138,7 @@ class SettingsWidget(QtWidgets.QWidget):
         )
 
         self.simple_settings_button(
-            "Restore Defaultss",
+            "Restore Defaults",
             "Restores All Sources to their defaults",
             self.restore_defaults
         )
