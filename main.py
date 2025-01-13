@@ -10,13 +10,16 @@ import zipfile
 import platform
 from PySide6 import QtCore, QtWidgets
 import shutil
-from githubkit.exception import RateLimitExceeded
+from githubkit.exception import RateLimitExceeded, RequestError, RequestFailed
+from httpx import NetworkError, Request
 from qasync import QEventLoop
 from PySide6.QtWidgets import (
     QComboBox,
+    QDialog,
     QErrorMessage,
     QHBoxLayout,
     QLabel,
+    QLineEdit,
     QListWidget,
     QListWidgetItem,
     QMessageBox,
@@ -61,6 +64,13 @@ class CacheReadError(CacheIOError):
 
 
 class CacheWriteError(CacheIOError):
+    pass
+
+
+class DuplicateSourceEntryError(ValueError):
+    pass
+
+class SourceFetchError(IOError):
     pass
 
 
@@ -277,6 +287,32 @@ class SourcesConfig:
             ],
         )
 
+    def add_entry(self, owner: str, repo: str, id: str, asset_type: FrayToolsAssetType):
+        match asset_type:
+            case FrayToolsAssetType.Plugin:
+                for plugin in self.plugins:
+                    if (owner, repo) == (plugin.owner, plugin.repo):
+                        raise DuplicateSourceEntryError(
+                            "Cannot add plugin source with the same repository"
+                        )
+                    if id == plugin.id:
+                        raise DuplicateSourceEntryError(
+                            "Cannot add plugin source with conflicting id"
+                        )
+                self.plugins.append(AssetConfig(owner=owner, repo=repo, id=id))
+            case FrayToolsAssetType.Template:
+                for template in self.templates:
+                    if (owner, repo) == (template.owner, template.repo):
+                        raise DuplicateSourceEntryError(
+                            "Cannot add template source with same repository"
+                        )
+                    if id == template.id:
+                        raise DuplicateSourceEntryError(
+                            "Cannot add template source with conflicting id"
+                        )
+                self.templates.append(AssetConfig(owner=owner, repo=repo, id=id))
+        self.write_config()
+
 
 @dataclass
 class TemplateManifest:
@@ -323,14 +359,17 @@ class FrayToolsAsset:
         id = config.id
         owner = config.owner
         repo = config.repo
-        releases = await gh.rest.repos.async_list_releases(owner, repo)
-        versions: list[FrayToolsAssetVersion] = []
+        try:
+           releases = await gh.rest.repos.async_list_releases(owner, repo)
+           versions: list[FrayToolsAssetVersion] = []
 
-        for release in releases.parsed_data:
-            tag = release.tag_name
-            asset_url = release.assets[0].browser_download_url
-            plugin_version = FrayToolsAssetVersion(asset_url, tag)
-            versions.append(plugin_version)
+           for release in releases.parsed_data:
+               tag = release.tag_name
+               asset_url = release.assets[0].browser_download_url
+               plugin_version = FrayToolsAssetVersion(asset_url, tag)
+               versions.append(plugin_version)
+        except RequestFailed as e:
+            raise SourceFetchError(f"Failed to Fetch Data for {id}: {e}")
 
         return FrayToolsAsset(asset_type, id, owner, repo, versions)
 
@@ -884,13 +923,121 @@ class MainWindow(QtWidgets.QMainWindow):
         self.settings_menu = SettingsWidget(self)
         self.tabs.addTab(self.plugin_list, "Plugins")
         self.tabs.addTab(self.template_list, "Templates")
-        self.tabs.addTab(QWidget(), "Sources")
         self.tabs.addTab(self.settings_menu, "Settings")
         self.setCentralWidget(self.tabs)
         self.setMinimumSize(QtCore.QSize(800, 600))
+        self.reload()
+        SourceEntryDialogue(self,self).exec()
+    def reload(self):
         refresh_data_ui_offline(self)
         self.plugin_list.reload()
         self.template_list.reload()
+        
+
+
+class SourceEntryDialogue(QtWidgets.QDialog):
+    def __init__(self, parent, main_menu: MainWindow):
+        super().__init__()
+        self.asset_type: FrayToolsAssetType = FrayToolsAssetType.Plugin
+        self.asset_config: AssetConfig = AssetConfig(id="", owner="", repo="")
+        self.setWindowTitle("Add Source Entry")
+        self.setMinimumWidth(400)
+        self.main_menu = main_menu
+
+        self.owner_input = QLineEdit("", self)
+        self.owner_input.setPlaceholderText("Github Repo Owner")
+        self.owner_input.textEdited.connect(self.owner_edited)
+
+        self.repo_input = QLineEdit("", self)
+        self.repo_input.setPlaceholderText("Github Repository Name")
+        self.repo_input.textEdited.connect(self.repo_edited)
+
+        self.id_input = QLineEdit("", self)
+        self.id_input.setPlaceholderText("Plugin Manifest Id")
+        self.id_input.textEdited.connect(self.id_edited)
+
+        self.asset_type_input = QComboBox(self)
+        self.asset_type_input.addItems(["Plugin", "Template"])
+        self.asset_type_input.currentIndexChanged.connect(self.on_select)
+        self.asset_type_input.setCurrentIndex(0)
+
+        self.add_button = QPushButton(self)
+        self.add_button.setText("Add Source")
+        self.add_button.pressed.connect(self.submitted)
+
+        self.items_layout = QtWidgets.QVBoxLayout(self)
+        self.items_layout.addWidget(
+            self.create_row([QLabel("Owner"), self.owner_input])
+        )
+        self.items_layout.addWidget(self.create_row([QLabel("Repo"), self.repo_input]))
+        self.items_layout.addWidget(self.create_row([QLabel("Id"), self.id_input]))
+        self.items_layout.addWidget(
+            self.create_row([QLabel("Asset Type"), self.asset_type_input])
+        )
+        self.items_layout.addWidget(self.add_button)
+
+        self.setLayout(self.items_layout)
+
+    @QtCore.Slot()
+    def submitted(self):
+        validationError = False
+        warnings = "Missing Fields:\n"
+        if len(self.asset_config.owner) == 0:
+            warnings += " Owner\n"
+            validationError = True
+        if len(self.asset_config.repo) == 0:
+            warnings += "Repo\n"
+            validationError = True
+        if len(self.asset_config.id) == 0:
+            warnings += "Id"
+            validationError = True
+        if validationError:
+            QErrorMessage(self).showMessage(warnings)
+            return
+
+        try:
+            sources_config.add_entry(
+                owner=self.asset_config.owner,
+                repo=self.asset_config.repo,
+                id=self.asset_config.id,
+                asset_type=self.asset_type,
+            )
+            refresh_data_ui_offline(self)
+            self.main_menu.reload()
+            self.accept()
+        except (DuplicateSourceEntryError, IOError, ValueError) as e:
+            QErrorMessage(self).showMessage(f"{e}")
+
+    @QtCore.Slot()
+    def owner_edited(self, text: str):
+        self.owner_input.setText(text.replace(" ", ""))
+        self.asset_config.owner = text.replace(" ", "")
+
+    @QtCore.Slot()
+    def repo_edited(self, text: str):
+        self.asset_config.repo = text.replace(" ", "")
+        self.repo_input.setText(text.replace(" ", ""))
+
+    @QtCore.Slot()
+    def id_edited(self, text: str):
+        self.asset_config.id = text
+
+    @QtCore.Slot()
+    def on_select(self, index):
+        if index == 0:
+            self.asset_type = FrayToolsAssetType.Plugin
+            self.id_input.setPlaceholderText("Plugin Manifest Id")
+        else:
+            self.asset_type = FrayToolsAssetType.Template
+            self.id_input.setPlaceholderText("Template Manifest resourceId")
+
+    def create_row(self, widgets: list[QWidget]) -> QWidget:
+        base_widget = QWidget()
+        row = QtWidgets.QVBoxLayout(self)
+        for widget in widgets:
+            row.addWidget(widget)
+        base_widget.setLayout(row)
+        return base_widget
 
 
 class SettingsWidget(QtWidgets.QWidget):
@@ -989,10 +1136,8 @@ class SettingsWidget(QtWidgets.QWidget):
                 await refresh_data_async()
             except RateLimitExceeded as e:
                 QErrorMessage(self).showMessage("You've hit the GitHub API Rate Limit!")
-            except RequestError:
-                QErrorMessage(self).showMessage(
-                    "Something went wrong when trying to access the Github API!"
-                )
+            except SourceFetchError as e:
+                QErrorMessage(self).showMessage(str(e))
             except (
                 CacheWriteError,
                 CacheReadError,
