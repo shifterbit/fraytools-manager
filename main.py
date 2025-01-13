@@ -72,6 +72,7 @@ class CacheWriteError(CacheIOError):
 class DuplicateSourceEntryError(ValueError):
     pass
 
+
 class SourceFetchError(IOError):
     pass
 
@@ -315,6 +316,13 @@ class SourcesConfig:
                 self.templates.append(AssetConfig(owner=owner, repo=repo, id=id))
         self.write_config()
 
+    def remove_entry(self, id: str, asset_type: FrayToolsAssetType):
+        match asset_type:
+            case FrayToolsAssetType.Plugin:
+                self.plugins = list(filter(lambda a: a.id != id, self.plugins))
+            case FrayToolsAssetType.Template:
+                self.templates = list(filter(lambda a: a.id != id, self.templates))
+
 
 @dataclass
 class TemplateManifest:
@@ -362,14 +370,14 @@ class FrayToolsAsset:
         owner = config.owner
         repo = config.repo
         try:
-           releases = await gh.rest.repos.async_list_releases(owner, repo)
-           versions: list[FrayToolsAssetVersion] = []
+            releases = await gh.rest.repos.async_list_releases(owner, repo)
+            versions: list[FrayToolsAssetVersion] = []
 
-           for release in releases.parsed_data:
-               tag = release.tag_name
-               asset_url = release.assets[0].browser_download_url
-               plugin_version = FrayToolsAssetVersion(asset_url, tag)
-               versions.append(plugin_version)
+            for release in releases.parsed_data:
+                tag = release.tag_name
+                asset_url = release.assets[0].browser_download_url
+                plugin_version = FrayToolsAssetVersion(asset_url, tag)
+                versions.append(plugin_version)
         except RequestFailed as e:
             raise SourceFetchError(f"Failed to Fetch Data for {id}: {e}")
 
@@ -476,6 +484,9 @@ class AssetEntry:
         )
 
     def can_download(self, selected_version: str | None) -> bool:
+        if selected_version is None or self.config is None:
+            return False
+
         return (
             not self.is_installed(selected_version)
             and self.asset is not None
@@ -489,9 +500,9 @@ class AssetEntry:
         return self.is_installed(selected_version)
 
     def can_install(self, selected_version: str | None) -> bool:
-        # return not (
-        #     self.can_download(selected_version) or self.is_installed(selected_version)
-        # )
+        if selected_version is None or self.config is None:
+            return False
+
         return (
             download_location_file(
                 self.config.id, selected_version, self.asset_type
@@ -800,6 +811,7 @@ def generate_entries(asset_type: FrayToolsAssetType) -> list[AssetEntry]:
 def load_cached_asset_sources(asset_type: FrayToolsAssetType):
     global plugin_manifest_map, plugin_map, plugin_config_map, sources_cache
     global template_manifest_map, template_map, template_config_map
+    global plugin_entries, template_entries
     asset_name = "Asset"
     detect_fn = lambda: []
     cfg_map = dict()
@@ -831,14 +843,18 @@ def load_cached_asset_sources(asset_type: FrayToolsAssetType):
         case FrayToolsAssetType.Template:
             template_manifest_map = generate_manifest_map(detect_fn())
             template_map = generate_asset_map(assets)
+    plugin_entries = generate_plugin_entries()
+    template_entries = generate_template_entries() 
     Cache.write_to_disk()
 
 
-def reload_cached_data(asset_type: FrayToolsAssetType | None = None):
+def reload_cached_data(
+    asset_type: FrayToolsAssetType | None = None, defaults: bool = False
+):
     global sources_cache, sources_config
     global plugin_manifest_map, plugin_entries, plugin_map, plugin_config_map
     global template_manifest_map, template_entries, template_map, template_config_map
-    if app_directory().joinpath("sources.json").exists():
+    if app_directory().joinpath("sources.json").exists() and not defaults:
         sources_config = SourcesConfig.from_config(
             str(app_directory().joinpath("sources.json"))
         )
@@ -857,9 +873,10 @@ def reload_cached_data(asset_type: FrayToolsAssetType | None = None):
     Cache.write_to_disk()
 
 
-async def fetch_asset_sources(asset_type: FrayToolsAssetType):
+async def fetch_asset_source(id: str, asset_type: FrayToolsAssetType):
     global plugin_manifest_map, plugin_map
     global template_manifest_map, template_map
+    global plugin_entries, template_entries
     asset_name = "Asset"
     detect_fn = lambda: []
     cfg_map = dict()
@@ -873,9 +890,10 @@ async def fetch_asset_sources(asset_type: FrayToolsAssetType):
             detect_fn = detect_templates
             cfg_map = template_config_map
 
-    print(f"Refreshing {asset_name} Sources...")
+    print(f"Refreshing {asset_name} Source...")
     assets: list[FrayToolsAsset] = []
-    for config in cfg_map.values():
+    if id in cfg_map.keys():
+        config = cfg_map[id]
         asset: FrayToolsAsset
         print(f"Fetching {config.id}")
         asset = await FrayToolsAsset.fetch_data(config, asset_type)
@@ -890,6 +908,32 @@ async def fetch_asset_sources(asset_type: FrayToolsAssetType):
         case FrayToolsAssetType.Template:
             template_manifest_map = generate_manifest_map(detect_fn())
             template_map = generate_asset_map(assets)
+            
+    plugin_entries = generate_plugin_entries()
+    template_entries = generate_template_entries() 
+    Cache.write_to_disk()
+
+
+async def fetch_asset_sources(asset_type: FrayToolsAssetType):
+    global plugin_manifest_map, plugin_map
+    global template_manifest_map, template_map
+    global plugin_entries, template_entries
+    asset_name = "Asset"
+    detect_fn = lambda: []
+    cfg_map = dict()
+    match asset_type:
+        case FrayToolsAssetType.Plugin:
+            asset_name = "Plugin"
+            cfg_map = plugin_config_map
+        case FrayToolsAssetType.Template:
+            asset_name = "Template"
+            cfg_map = template_config_map
+
+    print(f"Refreshing {asset_name} Sources...")
+    assets: list[FrayToolsAsset] = []
+    for id in cfg_map.keys():
+        await fetch_asset_source(id, asset_type)
+    Cache.write_to_disk()
 
 
 async def refresh_data_async(asset_type: FrayToolsAssetType | None = None):
@@ -922,33 +966,39 @@ class MainWindow(QtWidgets.QMainWindow):
 
         self.setWindowTitle("FrayTools Manager")
         self.tabs = QTabWidget(self)
-        self.plugin_list = AssetListWidget(FrayToolsAssetType.Plugin)
-        self.template_list = AssetListWidget(FrayToolsAssetType.Template)
+        self.plugin_list = AssetListWidget(FrayToolsAssetType.Plugin, self)
+        self.template_list = AssetListWidget(FrayToolsAssetType.Template, self)
         self.settings_menu = SettingsWidget(self)
         self.tabs.addTab(self.plugin_list, "Plugins")
         self.tabs.addTab(self.template_list, "Templates")
         self.tabs.addTab(self.settings_menu, "Settings")
         self.setCentralWidget(self.tabs)
         self.setMinimumSize(QtCore.QSize(800, 600))
-        
+
         sources_menu = self.menuBar().addMenu("Sources")
         add_sources_action = QAction("Add Source...", self)
         add_sources_action.triggered.connect(lambda: SourceEntryDialogue(self).exec())
-        
+
         fetch_sources_action = QAction("Fetch Sources", self)
-        fetch_sources_action.triggered.connect(lambda: self.settings_menu.refresh_sources())
-        
+        fetch_sources_action.triggered.connect(
+            lambda: self.settings_menu.refresh_sources()
+        )
+
         sources_menu.addAction(add_sources_action)
         sources_menu.addAction(fetch_sources_action)
-        
-        cache_menu  = self.menuBar().addMenu("Cache")
-        
+
+        cache_menu = self.menuBar().addMenu("Cache")
+
         clear_sources_action = QAction("Clear Sources Cache", self)
-        clear_sources_action.triggered.connect(lambda: self.settings_menu.clear_sources_cache())
-        
+        clear_sources_action.triggered.connect(
+            lambda: self.settings_menu.clear_sources_cache()
+        )
+
         delete_downloads_action = QAction("Delete Dowload Cache", self)
-        delete_downloads_action.triggered.connect(lambda: self.settings_menu.clear_download_cache())
-        
+        delete_downloads_action.triggered.connect(
+            lambda: self.settings_menu.clear_download_cache()
+        )
+
         cache_menu.addAction(clear_sources_action)
         cache_menu.addAction(delete_downloads_action)
         self.reload()
@@ -957,7 +1007,6 @@ class MainWindow(QtWidgets.QMainWindow):
         refresh_data_ui_offline(self)
         self.plugin_list.reload()
         self.template_list.reload()
-        
 
 
 class SourceEntryDialogue(QtWidgets.QDialog):
@@ -1088,6 +1137,12 @@ class SettingsWidget(QtWidgets.QWidget):
             lambda: asyncio.ensure_future(self.refresh_sources()),
         )
 
+        self.simple_settings_button(
+            "Restore Defaultss",
+            "Restores All Sources to their defaults",
+            self.restore_defaults
+        )
+
     def simple_settings_button(self, button_text: str, description: str, on_press):
         widget = QWidget()
         widget.setMinimumHeight(40)
@@ -1104,9 +1159,22 @@ class SettingsWidget(QtWidgets.QWidget):
         self.settings_items.setItemWidget(item, widget)
 
     def refresh_parent(self):
-        self.parent_ref.plugin_list.reload()
-        self.parent_ref.template_list.reload()
-
+        self.parent_ref.reload()
+        
+    @QtCore.Slot()
+    def restore_defaults(self):
+        msgBox: QMessageBox = QMessageBox()
+        msgBox.setWindowTitle("Restore Defaults")
+        msgBox.setText("Are you sure you want to restore defaults")
+        msgBox.setStandardButtons(
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
+        )
+        msgBox.setDefaultButton(QMessageBox.StandardButton.No)
+        if msgBox.exec() == QMessageBox.StandardButton.Yes:
+            reload_cached_data(defaults=True)
+            refresh_data_ui_offline(self)
+            self.refresh_parent()
+            
     @QtCore.Slot()
     def clear_sources_cache(self):
         msgBox: QMessageBox = QMessageBox()
@@ -1179,9 +1247,9 @@ class SettingsWidget(QtWidgets.QWidget):
 
 
 class AssetListWidget(QtWidgets.QWidget):
-    def __init__(self, asset_type: FrayToolsAssetType):
+    def __init__(self, asset_type: FrayToolsAssetType, parent: MainWindow):
         super().__init__()
-
+        self.parent_ref = parent
         self.asset_type = asset_type
         self.create_asset_list()
         self.add_installed_assets()
@@ -1221,16 +1289,17 @@ class AssetListWidget(QtWidgets.QWidget):
 
 
 class AssetItemWidget(QtWidgets.QWidget):
-    def __init__(self, entry: AssetEntry, asset_type: FrayToolsAssetType, parent=None):
+    def __init__(
+        self, entry: AssetEntry, asset_type: FrayToolsAssetType, parent: AssetListWidget
+    ):
         super(AssetItemWidget, self).__init__(parent)
-
+        self.main_menu = parent.parent_ref
         self.entry = entry
         self.tags = []
         self.downloading_tags = set()
         self.selected_version = None
         self.asset_type = asset_type
         self.setContextMenuPolicy(Qt.ContextMenuPolicy.ActionsContextMenu)
-
 
         if entry.asset and entry.config:
             self.tags = list(map(lambda v: v.tag, entry.asset.versions))
@@ -1249,15 +1318,35 @@ class AssetItemWidget(QtWidgets.QWidget):
         self.row = QHBoxLayout()
         self.row.setSpacing(0)
         self.setMinimumHeight(30)
-        self.refresh_action = QAction("Refresh Source", self)  
-        self.delete_download_action = QAction("Delete Download Cache", self)
+
+        self.refresh_action = QAction("Refresh Source", self)
+        self.refresh_action.triggered.connect(
+            lambda: asyncio.ensure_future(self.on_refresh())
+        )
+        self.delete_download_cache_action = QAction("Delete Download Cache", self)
+        self.delete_download_cache_action.triggered.connect(
+            self.on_remove_download_cache
+        )
+
+        self.delete_download_action = QAction("Delete Download", self)
+        self.delete_download_action.triggered.connect(self.on_remove_download)
+
         self.remove_source_action = QAction("Remove Source", self)
-        
+        self.remove_source_action.triggered.connect(self.on_remove_source)
+
         self.download_action = QAction("Download", self)
+        self.download_action.triggered.connect(
+            lambda: asyncio.ensure_future(self.on_download())
+        )
+
         self.install_action = QAction("Install", self)
+        self.install_action.triggered.connect(self.on_install)
+
         self.uninstall_action = QAction("Uninstall", self)
-        
+        self.uninstall_action.triggered.connect(self.on_uninstall)
+
         self.addAction(self.refresh_action)
+
         self.addAction(self.delete_download_action)
         self.addAction(self.remove_source_action)
 
@@ -1302,6 +1391,61 @@ class AssetItemWidget(QtWidgets.QWidget):
         self.setLayout(self.row)
 
     @QtCore.Slot()
+    def on_remove_source(self):
+        global sources_config
+        try:
+            if self.entry.config:
+                if Cache.exists(self.entry.config.id, self.asset_type):
+                    Cache.delete(self.entry.config.id, self.asset_type)
+                Cache.write_to_disk()
+                sources_config.remove_entry(self.entry.config.id, self.asset_type)
+                sources_config.write_config()
+                refresh_data_ui_offline(self)
+                self.main_menu.reload()
+                self.update_buttons()
+        except IOError as e:
+            QErrorMessage(self).showMessage(str(e))
+
+    @QtCore.Slot()
+    def on_remove_download_cache(self):
+        try:
+            if self.entry.config and self.selection_list and self.selected_version:
+                download_path = download_location(
+                    self.entry.config.id, self.selected_version, self.asset_type
+                )
+                if download_path.exists():
+                    shutil.rmtree(download_path)
+            refresh_data_ui_offline(self)
+            self.update_buttons()
+        except IOError as e:
+            QErrorMessage(self).showMessage(str(e))
+
+    @QtCore.Slot()
+    def on_remove_download(self):
+        try:
+            if self.entry.config and self.selection_list and self.selected_version:
+                download_path = download_location_file(
+                    self.entry.config.id, self.selected_version, self.asset_type
+                )
+                if download_path.exists():
+                    download_path.unlink(True)
+            refresh_data_ui_offline(self)
+            self.update_buttons()
+        except IOError as e:
+            QErrorMessage(self).showMessage(str(e))
+
+    @QtCore.Slot()
+    async def on_refresh(self):
+        try:
+            if self.entry.config:
+                await fetch_asset_source(self.entry.config.id, self.asset_type)
+            self.main_menu.reload()
+            refresh_data_ui_offline(self)
+            self.update_buttons()
+        except (IOError, RequestFailed, ValueError) as e:
+            QErrorMessage(self).showMessage(str(e))
+
+    @QtCore.Slot()
     def on_select(self, index: int) -> None:
         self.selected_version = self.tags[index]
         self.update_buttons()
@@ -1332,10 +1476,10 @@ class AssetItemWidget(QtWidgets.QWidget):
                         shutil.rmtree(path)
                         self.entry.manifest = None
         except IOError as e:
-            QErrorMessage(self).showMessage(f"Something went wrong:\n {e}")
-        finally:
             refresh_data_ui_offline(self)
+            self.main_menu.reload()
             self.update_buttons()
+            QErrorMessage(self).showMessage(f"Something went wrong:\n {e}")
 
     @QtCore.Slot()
     def on_install(self) -> None:
@@ -1349,14 +1493,16 @@ class AssetItemWidget(QtWidgets.QWidget):
                     plugin_manifests = plugin_manifest_map
                 elif self.asset_type == FrayToolsAssetType.Template:
                     template_manifests = template_manifest_map
+                self.install_button.setText("Installing...")
+                self.install_action.setText("Installing...")
+                self.install_button.setEnabled(False)
+                self.install_action.setEnabled(False)
                 self.entry.asset.install_version(
                     index,
                     asset_type=self.asset_type,
                     plugin_manifests=plugin_manifests,
                     template_manifests=template_manifests,
                 )
-                self.install_button.setText("Installing")
-                self.installed_button.setEnabled(False)
                 reload_cached_data()
                 if self.asset_type == FrayToolsAssetType.Plugin:
                     self.entry.manifest = plugin_manifest_map[self.entry.asset.id]
@@ -1364,11 +1510,14 @@ class AssetItemWidget(QtWidgets.QWidget):
                     self.entry.manifest = template_manifest_map[self.entry.asset.id]
         except IOError as e:
             QErrorMessage(self).showMessage(f"{e}")
+            self.on_remove_download()
         except BaseException as e:
             QErrorMessage(self).showMessage(f"{e}")
         finally:
             self.install_button.setText("Install")
+            self.install_action.setText("Install")
             self.install_button.setEnabled(True)
+            self.install_action.setEnabled(True)
             self.update_buttons()
 
     async def on_download(self) -> None:
@@ -1382,13 +1531,17 @@ class AssetItemWidget(QtWidgets.QWidget):
                 index: int = self.selection_list.currentIndex()
                 self.downloading_tags.add(self.selection_list.currentData())
                 self.download_button.setEnabled(False)
+                self.download_action.setEnabled(False)
                 self.download_button.setText("Downloading...")
+                self.download_action.setText("Downloading...")
                 await self.entry.asset.download_version(index)
                 reload_cached_data()
                 self.update_buttons()
             finally:
                 self.download_button.setEnabled(True)
+                self.download_action.setEnabled(True)
                 self.download_button.setText("Download")
+                self.download_action.setText("Download")
                 self.downloading_tags.remove(self.selection_list.currentData())
                 self.update_buttons()
 
