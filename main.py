@@ -7,7 +7,7 @@ from PySide6.QtGui import QAction, Qt
 from attr import dataclass
 import githubkit
 import zipfile
-
+import signal
 import platform
 from PySide6 import QtCore, QtWidgets
 import shutil
@@ -1599,10 +1599,9 @@ def main():
     app.aboutToQuit.connect(app_close_event.set)
     main_window = MainWindow()
     main_window.show()
-
+    signal.signal(signal.SIGINT, signal.SIG_DFL)
     with event_loop:
         event_loop.run_until_complete(app_close_event.wait())
-
 
 if __name__ == "__main__":
     main()
