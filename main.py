@@ -975,11 +975,17 @@ async def refresh_data_async(asset_type: FrayToolsAssetType | None = None):
     template_entries = generate_template_entries()
 
 
+def display_error_popup(widget: QWidget, message:str):
+    err = QErrorMessage(widget)
+    err.setWindowTitle("Something went wrong!")
+    err.showMessage(message)
+
 def refresh_data_ui_offline(widget: QtWidgets.QWidget):
     try:
         reload_cached_data()
     except (IOError, ValueError) as e:
-        QErrorMessage(widget).showMessage(str(e))
+        display_error_popup(widget, str(e))
+        
 
 
 class MainWindow(QtWidgets.QMainWindow):
@@ -1088,7 +1094,7 @@ class SourceEntryDialogue(QtWidgets.QDialog):
             warnings += "Id"
             validationError = True
         if validationError:
-            QErrorMessage(self).showMessage(warnings)
+            display_error_popup(self, warnings)
             return
 
         try:
@@ -1102,7 +1108,7 @@ class SourceEntryDialogue(QtWidgets.QDialog):
             self.main_menu.reload()
             self.accept()
         except (DuplicateSourceEntryError, IOError, ValueError) as e:
-            QErrorMessage(self).showMessage(f"{e}")
+            display_error_popup(self, str(e))
 
     @QtCore.Slot()
     def owner_edited(self, text: str):
@@ -1259,17 +1265,16 @@ class SettingsWidget(QtWidgets.QWidget):
                 self.parent_ref.fetch_sources_action.setText("Refreshing..")
                 await refresh_data_async()
             except RateLimitExceeded:
-                QErrorMessage(self).showMessage("You've hit the GitHub API Rate Limit!")
-            except SourceFetchError as e:
-                QErrorMessage(self).showMessage(str(e))
+                display_error_popup(self, "You've hit the Github API Rate Limit!")
             except (
                 CacheWriteError,
                 CacheReadError,
                 InvalidCacheError,
                 InvalidSourceError,
+                SourceFetchError,
                 IOError,
             ) as e:
-                QErrorMessage(self).showMessage(f"{e}")
+                display_error_popup(self, str(e))
             finally:
                 self.refresh_button.setEnabled(True)
                 self.refresh_button.setText("Refresh")
@@ -1441,7 +1446,7 @@ class AssetItemWidget(QtWidgets.QWidget):
                 self.main_menu.reload()
                 self.update_buttons()
         except IOError as e:
-            QErrorMessage(self).showMessage(str(e))
+            display_error_popup(self, str(e))
 
     @QtCore.Slot()
     def on_remove_download_cache(self):
@@ -1453,7 +1458,7 @@ class AssetItemWidget(QtWidgets.QWidget):
             refresh_data_ui_offline(self)
             self.update_buttons()
         except IOError as e:
-            QErrorMessage(self).showMessage(str(e))
+            display_error_popup(self, str(e))
 
     @QtCore.Slot()
     def on_remove_download(self):
@@ -1467,7 +1472,7 @@ class AssetItemWidget(QtWidgets.QWidget):
             refresh_data_ui_offline(self)
             self.update_buttons()
         except IOError as e:
-            QErrorMessage(self).showMessage(str(e))
+            display_error_popup(self, str(e))
 
     @QtCore.Slot()
     async def on_refresh(self):
@@ -1478,7 +1483,7 @@ class AssetItemWidget(QtWidgets.QWidget):
             refresh_data_ui_offline(self)
             self.update_buttons()
         except (IOError, RequestFailed, RequestError, ValueError) as e:
-            QErrorMessage(self).showMessage(str(e))
+             display_error_popup(self, str(e))
 
     @QtCore.Slot()
     def on_select(self, index: int) -> None:
@@ -1513,7 +1518,7 @@ class AssetItemWidget(QtWidgets.QWidget):
             self.main_menu.reload()
             self.update_buttons()
         except IOError as e:
-            QErrorMessage(self).showMessage(f"Something went wrong:\n {e}")
+            display_error_popup(self, str(e))
 
     @QtCore.Slot()
     def on_install(self) -> None:
@@ -1543,10 +1548,10 @@ class AssetItemWidget(QtWidgets.QWidget):
                 elif self.asset_type == FrayToolsAssetType.Template:
                     self.entry.manifest = template_manifest_map[self.entry.asset.id]
         except IOError as e:
-            QErrorMessage(self).showMessage(f"{e}")
+            display_error_popup(self, str(e)) 
             self.on_remove_download()
         except BaseException as e:
-            QErrorMessage(self).showMessage(f"{e}")
+            display_error_popup(self, str(e)) 
         finally:
             self.install_button.setText("Install")
             self.install_action.setText("Install")
