@@ -5,6 +5,8 @@ let
     aiohttp
     qasync
     githubkit
+    markdown
+    markdown2
     mypy
   ];
 in pkgs.mkShell {

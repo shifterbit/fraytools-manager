@@ -9,12 +9,16 @@ from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
 from typing import Callable, Generator, TypedDict, cast
+import markdown2
+import re
 
+from PySide6.QtWebEngineCore import QWebEnginePage
 import aiohttp
 import githubkit
 from githubkit.exception import RateLimitExceeded, RequestFailed, RequestError
 from PySide6 import QtCore, QtWidgets
-from PySide6.QtGui import QAction, QTextDocument, QTextObject, Qt
+from PySide6.QtWebEngineWidgets import QWebEngineView
+from PySide6.QtGui import QAction, QTextDocument, QTextObject, QWindow, Qt
 from PySide6.QtWidgets import (
     QComboBox,
     QErrorMessage,
@@ -30,7 +34,9 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
     QWidget,
 )
-from githubkit.versions.v2022_11_28.types.group_0686 import WebhookPullRequestReviewThreadUnresolvedPropPullRequestPropRequestedReviewersItemsOneof1PropParentType
+from githubkit.versions.v2022_11_28.types.group_0686 import (
+    WebhookPullRequestReviewThreadUnresolvedPropPullRequestPropRequestedReviewersItemsOneof1PropParentType,
+)
 from qasync import QEventLoop
 
 gh = githubkit.GitHub()
@@ -156,15 +162,15 @@ def download_location_file(id: str, tag: str, asset_type: FrayToolsAssetType) ->
 
 class AssetConfig:
     def __init__(self, owner: str, repo: str, id: str):
-        self.owner = owner
-        self.repo = repo
-        self.id = id
+        self.owner: str = owner
+        self.repo: str = repo
+        self.id: str = id
 
 
 class SourcesConfig:
     def __init__(self, plugins: list[AssetConfig], templates: list[AssetConfig]):
-        self.plugins = plugins
-        self.templates = templates
+        self.plugins: list[AssetConfig] = plugins
+        self.templates: list[AssetConfig] = templates
 
     @staticmethod
     def from_config(path: str):
@@ -451,7 +457,8 @@ class FrayToolsAsset:
                 os.makedirs(outpath)
             extract_zip_without_root(filename, str(outpath))
         print("Completed Install")
-    def get_changelog(self, index:int):
+
+    def get_changelog(self, index: int):
         return self.versions[index].changelog
 
 
@@ -980,17 +987,17 @@ async def refresh_data_async(asset_type: FrayToolsAssetType | None = None):
     template_entries = generate_template_entries()
 
 
-def display_error_popup(widget: QWidget, message:str):
+def display_error_popup(widget: QWidget, message: str):
     err = QErrorMessage(widget)
     err.setWindowTitle("Something went wrong!")
     err.showMessage(message)
+
 
 def refresh_data_ui_offline(widget: QtWidgets.QWidget):
     try:
         reload_cached_data()
     except (IOError, ValueError) as e:
         display_error_popup(widget, str(e))
-        
 
 
 class MainWindow(QtWidgets.QMainWindow):
@@ -1334,6 +1341,22 @@ class AssetListWidget(QtWidgets.QWidget):
         self.create_asset_list()
 
 
+class SubWindow(QWidget):
+    """
+    This "window" is a QWidget. If it has no parent, it
+    will appear as a free-floating window as we want.
+    """
+
+    def __init__(self, widget: QWidget, title: str):
+        super().__init__()
+        layout = QVBoxLayout()
+        self.setWindowTitle(title)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.addWidget(widget)
+        widget.show()
+        self.setLayout(layout)
+
+
 class AssetItemWidget(QtWidgets.QWidget):
     def __init__(
         self, entry: AssetEntry, asset_type: FrayToolsAssetType, parent: AssetListWidget
@@ -1438,16 +1461,41 @@ class AssetItemWidget(QtWidgets.QWidget):
         self.row.addWidget(self.selection_list)
 
         self.setLayout(self.row)
+
     @QtCore.Slot()
     def on_show_changelog(self):
+
+        pattern = re.compile(
+            r"""
+        \b
+        (
+            (?:https?://|(?<!//)www\.)    # prefix - https:// or www.
+            \w[\w_\-]*(?:\.\w[\w_\-]*)*   # host
+            [^<>\s"']*                    # rest of url
+            (?<![?!.,:*_~);])             # exclude trailing punctuation
+            (?=[?!.,:*_~);]?(?:[<\s]|$))  # make sure that we're not followed by " or ', i.e. we're outside of href="...".
+        )
+    """,
+            re.X,
+        )
         if self.entry.asset and self.selected_version:
             print("Showing Changelog")
-            text = QTextBrowser()
-            text.setWindowTitle(f"Changelog for {self.entry.asset.id} {self.selected_version}")
-            doc = QTextDocument(self.entry.asset.get_changelog(self.tags.index(self.selected_version)))
-            text.setDocument(doc)
-            text.show()
-            text.activateWindow()
+            webview: QWebEngineView = QWebEngineView()
+            html = markdown2.markdown(
+                self.entry.asset.get_changelog(self.tags.index(self.selected_version)),
+                extras=["link-patterns"],
+                # link_patterns=
+                link_patterns=[(pattern, r"\1")],
+            )
+            webview.setHtml(html)
+            print(html)
+
+            self.subwindow = SubWindow(
+                webview, f"Changelog for {self.entry.asset.id} {self.selected_version}"
+            )
+            self.subwindow.resize(webview.sizeHint())
+            self.subwindow.show()
+
     @QtCore.Slot()
     def on_remove_source(self):
         global sources_config
@@ -1499,7 +1547,7 @@ class AssetItemWidget(QtWidgets.QWidget):
             refresh_data_ui_offline(self)
             self.update_buttons()
         except (IOError, RequestFailed, RequestError, ValueError) as e:
-             display_error_popup(self, str(e))
+            display_error_popup(self, str(e))
 
     @QtCore.Slot()
     def on_select(self, index: int) -> None:
@@ -1564,10 +1612,10 @@ class AssetItemWidget(QtWidgets.QWidget):
                 elif self.asset_type == FrayToolsAssetType.Template:
                     self.entry.manifest = template_manifest_map[self.entry.asset.id]
         except IOError as e:
-            display_error_popup(self, str(e)) 
+            display_error_popup(self, str(e))
             self.on_remove_download()
         except BaseException as e:
-            display_error_popup(self, str(e)) 
+            display_error_popup(self, str(e))
         finally:
             self.install_button.setText("Install")
             self.install_action.setText("Install")
