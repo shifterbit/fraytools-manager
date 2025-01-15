@@ -339,6 +339,7 @@ class PluginManifest:
 class FrayToolsAssetVersion:
     url: str
     tag: str
+    changelog: str
 
 
 class FrayToolsAsset:
@@ -380,7 +381,8 @@ class FrayToolsAsset:
                 else:
                     continue
                 tag = release.name
-                plugin_version = FrayToolsAssetVersion(asset_url, tag)
+                changelog: str = str(release.body)
+                plugin_version = FrayToolsAssetVersion(asset_url, str(tag), changelog)
                 versions.append(plugin_version)
         except RequestError as e:
             raise SourceFetchError(f"Failed to Fetch Data for {id}: {e}")
@@ -595,6 +597,7 @@ def generate_config_map(assets: list[AssetConfig]) -> dict[str, AssetConfig]:
 class CachedFrayToolsAssetVersion(TypedDict):
     url: str
     tag: str
+    changelog: str
 
 
 class CachedFrayToolsAsset(TypedDict):
@@ -632,7 +635,9 @@ class Cache:
             repo=asset.repo,
             versions=list(
                 map(
-                    lambda x: CachedFrayToolsAssetVersion(url=x.url, tag=x.tag),
+                    lambda x: CachedFrayToolsAssetVersion(
+                        url=x.url, tag=x.tag, changelog=x.changelog
+                    ),
                     asset.versions,
                 )
             ),
@@ -649,7 +654,9 @@ class Cache:
             repo=asset["repo"],
             versions=list(
                 map(
-                    lambda x: FrayToolsAssetVersion(url=x["url"], tag=x["tag"]),
+                    lambda x: FrayToolsAssetVersion(
+                        url=x["url"], tag=x["tag"], changelog=x["changelog"]
+                    ),
                     asset["versions"],
                 )
             ),
