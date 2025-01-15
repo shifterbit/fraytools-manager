@@ -1,22 +1,22 @@
-import os
-import pprint
-from typing import IO, Generator, TypedDict
+import asyncio
 import json
-from pathlib import Path
-from PySide6.QtGui import QAction, Qt
-from attr import dataclass
-import githubkit
-import zipfile
-import signal
+import os
 import platform
-from PySide6 import QtCore, QtWidgets
 import shutil
-from githubkit.exception import RateLimitExceeded, RequestError, RequestFailed
-from httpx import NetworkError, Request
-from qasync import QEventLoop
+import signal
+import zipfile
+from dataclasses import dataclass
+from enum import Enum
+from pathlib import Path
+from typing import Generator, TypedDict
+
+import aiohttp
+import githubkit
+from githubkit.exception import RateLimitExceeded, RequestFailed, RequestError
+from PySide6 import QtCore, QtWidgets
+from PySide6.QtGui import QAction, Qt
 from PySide6.QtWidgets import (
     QComboBox,
-    QDialog,
     QErrorMessage,
     QHBoxLayout,
     QLabel,
@@ -29,10 +29,7 @@ from PySide6.QtWidgets import (
     QTabWidget,
     QWidget,
 )
-import asyncio
-import aiohttp
-from enum import Enum
-from dataclasses import dataclass
+from qasync import QEventLoop
 
 gh = githubkit.GitHub()
 
@@ -378,7 +375,7 @@ class FrayToolsAsset:
                 asset_url = release.assets[0].browser_download_url
                 plugin_version = FrayToolsAssetVersion(asset_url, tag)
                 versions.append(plugin_version)
-        except RequestFailed as e:
+        except RequestError as e:
             raise SourceFetchError(f"Failed to Fetch Data for {id}: {e}")
 
         return FrayToolsAsset(asset_type, id, owner, repo, versions)
@@ -1118,11 +1115,12 @@ class SettingsWidget(QtWidgets.QWidget):
     def __init__(self, parent: MainWindow) -> None:
         super().__init__()
         self.parent_ref = parent
-        self.layout = QtWidgets.QVBoxLayout(self)
+        layout = QtWidgets.QVBoxLayout(self)
         self.settings_items = QListWidget()
         self.settings_items.setUniformItemSizes(True)
         self.settings_items.setSpacing(10)
-        self.layout.addWidget(self.settings_items)
+        layout.addWidget(self.settings_items)
+        self.setLayout(layout)
         self.simple_settings_button(
             "Clear Sources Cache", "Clears the sources cache", self.clear_sources_cache
         )
@@ -1186,10 +1184,10 @@ class SettingsWidget(QtWidgets.QWidget):
         msgBox.setDefaultButton(QMessageBox.StandardButton.No)
         if msgBox.exec() == QMessageBox.StandardButton.Yes:
             Cache.clear()
-            Cache.write_to_disk()
             reload_cached_data()
             refresh_data_ui_offline(self)
             self.refresh_parent()
+            Cache.write_to_disk()
         else:
             pass
 
@@ -1224,10 +1222,8 @@ class SettingsWidget(QtWidgets.QWidget):
         msgBox.setDefaultButton(QMessageBox.StandardButton.Cancel)
         if msgBox.exec() == QMessageBox.StandardButton.Yes:
             try:
-                Cache.clear()
-                Cache.write_to_disk()
                 await refresh_data_async()
-            except RateLimitExceeded as e:
+            except RateLimitExceeded:
                 QErrorMessage(self).showMessage("You've hit the GitHub API Rate Limit!")
             except SourceFetchError as e:
                 QErrorMessage(self).showMessage(str(e))
@@ -1442,7 +1438,7 @@ class AssetItemWidget(QtWidgets.QWidget):
             self.main_menu.reload()
             refresh_data_ui_offline(self)
             self.update_buttons()
-        except (IOError, RequestFailed, ValueError) as e:
+        except (IOError, RequestFailed,RequestError, ValueError) as e:
             QErrorMessage(self).showMessage(str(e))
 
     @QtCore.Slot()
@@ -1456,7 +1452,7 @@ class AssetItemWidget(QtWidgets.QWidget):
             if self.entry.manifest:
                 manifest: PluginManifest | TemplateManifest = self.entry.manifest
                 msgBox: QMessageBox = QMessageBox()
-                msgBox.setWindowTitle(f"Uninstalling plugin")
+                msgBox.setWindowTitle("Uninstalling plugin")
                 if not self.entry.asset or len(self.tags) == 0:
                     msgBox.setText(
                         f"Are you sure you want to remove {self.entry.display_name()}?\nIt is the only version available."
