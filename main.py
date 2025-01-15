@@ -14,7 +14,7 @@ import aiohttp
 import githubkit
 from githubkit.exception import RateLimitExceeded, RequestFailed, RequestError
 from PySide6 import QtCore, QtWidgets
-from PySide6.QtGui import QAction, Qt
+from PySide6.QtGui import QAction, QTextDocument, QTextObject, Qt
 from PySide6.QtWidgets import (
     QComboBox,
     QErrorMessage,
@@ -26,8 +26,11 @@ from PySide6.QtWidgets import (
     QMessageBox,
     QPushButton,
     QTabWidget,
+    QTextBrowser,
+    QVBoxLayout,
     QWidget,
 )
+from githubkit.versions.v2022_11_28.types.group_0686 import WebhookPullRequestReviewThreadUnresolvedPropPullRequestPropRequestedReviewersItemsOneof1PropParentType
 from qasync import QEventLoop
 
 gh = githubkit.GitHub()
@@ -448,6 +451,8 @@ class FrayToolsAsset:
                 os.makedirs(outpath)
             extract_zip_without_root(filename, str(outpath))
         print("Completed Install")
+    def get_changelog(self, index:int):
+        return self.versions[index].changelog
 
 
 class AssetEntry:
@@ -1376,6 +1381,9 @@ class AssetItemWidget(QtWidgets.QWidget):
         self.remove_source_action = QAction("Remove Source", self)
         self.remove_source_action.triggered.connect(self.on_remove_source)
 
+        self.show_changelog_action = QAction("Show Changelog", self)
+        self.show_changelog_action.triggered.connect(self.on_show_changelog)
+
         self.download_action = QAction("Download", self)
         self.download_action.triggered.connect(
             lambda: asyncio.ensure_future(self.on_download())
@@ -1388,10 +1396,9 @@ class AssetItemWidget(QtWidgets.QWidget):
         self.uninstall_action.triggered.connect(self.on_uninstall)
 
         self.addAction(self.refresh_action)
-
         self.addAction(self.delete_download_action)
         self.addAction(self.remove_source_action)
-
+        self.addAction(self.show_changelog_action)
         self.addAction(self.download_action)
         self.addAction(self.install_action)
         self.addAction(self.uninstall_action)
@@ -1431,7 +1438,16 @@ class AssetItemWidget(QtWidgets.QWidget):
         self.row.addWidget(self.selection_list)
 
         self.setLayout(self.row)
-
+    @QtCore.Slot()
+    def on_show_changelog(self):
+        if self.entry.asset and self.selected_version:
+            print("Showing Changelog")
+            text = QTextBrowser()
+            text.setWindowTitle(f"Changelog for {self.entry.asset.id} {self.selected_version}")
+            doc = QTextDocument(self.entry.asset.get_changelog(self.tags.index(self.selected_version)))
+            text.setDocument(doc)
+            text.show()
+            text.activateWindow()
     @QtCore.Slot()
     def on_remove_source(self):
         global sources_config
