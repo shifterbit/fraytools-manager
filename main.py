@@ -8,7 +8,7 @@ import zipfile
 from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
-from typing import Generator, TypedDict
+from typing import Callable, Generator, TypedDict, cast
 
 import aiohttp
 import githubkit
@@ -23,7 +23,6 @@ from PySide6.QtWidgets import (
     QLineEdit,
     QListWidget,
     QListWidgetItem,
-    QMenuBar,
     QMessageBox,
     QPushButton,
     QTabWidget,
@@ -140,7 +139,7 @@ def cache_directory() -> Path:
     return app_directory().joinpath("cache")
 
 
-def download_location(id: str, tag: str, asset_type: FrayToolsAssetType) -> Path:
+def download_location(id: str, asset_type: FrayToolsAssetType) -> Path:
     match asset_type:
         case FrayToolsAssetType.Plugin:
             return cache_directory().joinpath("plugins", f"{id}")
@@ -149,7 +148,7 @@ def download_location(id: str, tag: str, asset_type: FrayToolsAssetType) -> Path
 
 
 def download_location_file(id: str, tag: str, asset_type: FrayToolsAssetType) -> Path:
-    return download_location(id, tag, asset_type).joinpath(f"{id}-{tag}.zip")
+    return download_location(id, asset_type).joinpath(f"{id}-{tag}.zip")
 
 
 class AssetConfig:
@@ -240,8 +239,7 @@ class SourcesConfig:
         source_map["templates"] = self.generate_asset_list(self.templates)
         return source_map
 
-    def write_config(self):
-        p = self.generate_map()
+    def write_config(self) -> None:
         config_text: str = json.dumps(self.generate_map(), indent=2)
         try:
             with open(str(app_directory().joinpath("sources.json")), "w") as f:
@@ -371,10 +369,13 @@ class FrayToolsAsset:
             versions: list[FrayToolsAssetVersion] = []
 
             for release in releases.parsed_data:
-                asset_url:str
+                asset_url: str
                 if len(release.assets) > 0:
                     asset_url = release.assets[0].browser_download_url
-                elif asset_type == FrayToolsAssetType.Template and release.zipball_url is not None:
+                elif (
+                    asset_type == FrayToolsAssetType.Template
+                    and release.zipball_url is not None
+                ):
                     asset_url = release.zipball_url
                 else:
                     continue
@@ -391,7 +392,7 @@ class FrayToolsAsset:
         tag: str = self.versions[index].tag
         name: str = self.id
         print(f"Starting Download of {name}-{tag}")
-        download_path: Path = download_location(name, tag, self.asset_type)
+        download_path: Path = download_location(name, self.asset_type)
         if not download_path.exists():
             os.makedirs(download_path)
 
@@ -417,17 +418,19 @@ class FrayToolsAsset:
         tag: str = self.versions[index].tag
         id: str = self.id
         manifests: dict[str, PluginManifest] | dict[str, TemplateManifest] = dict()
-        outputdir = None
-        if asset_type == FrayToolsAssetType.Plugin:
+        outputdir: Path = Path()
+        if asset_type == FrayToolsAssetType.Plugin and plugin_manifests is not None:
             outputdir = plugin_directory()
             manifests = plugin_manifests
 
-        elif asset_type == FrayToolsAssetType.Template:
+        elif (
+            asset_type == FrayToolsAssetType.Template and template_manifests is not None
+        ):
             outputdir = template_directory()
             manifests = template_manifests
 
         manifest_path = None
-        download_path: Path = download_location(id, tag, asset_type)
+        download_path: Path = download_location(id, asset_type)
         if not download_path.exists():
             os.makedirs(download_path)
 
@@ -457,15 +460,21 @@ class AssetEntry:
         self.asset = asset
         self.config = config
         self.asset_type = asset_type
-        match asset_type:
-            case FrayToolsAssetType.Plugin:
-                self.manifest = plugin_manifest
-            case FrayToolsAssetType.Template:
-                self.manifest = template_manifest
+        self.manifest: None | PluginManifest | TemplateManifest = None
+        if asset_type == FrayToolsAssetType.Plugin and plugin_manifest is not None:
+            self.manifest = plugin_manifest
+        elif (
+            asset_type == FrayToolsAssetType.Template and template_manifest is not None
+        ):
+            self.manifest = template_manifest
 
     def display_name(self) -> str:
         display_name: str = "unknown asset"
-        if self.manifest and self.asset_type == FrayToolsAssetType.Plugin:
+        if (
+            self.manifest
+            and self.asset_type == FrayToolsAssetType.Plugin
+            and isinstance(self.manifest, PluginManifest)
+        ):
             display_name = f"{self.manifest.name} ({self.manifest.id})"
         elif self.asset:
             display_name = f"{self.asset.id}"
@@ -480,6 +489,7 @@ class AssetEntry:
         ) or (
             self.manifest is not None
             and self.asset is not None
+            and isinstance(self.manifest, PluginManifest)
             and (
                 self.asset_type == FrayToolsAssetType.Plugin
                 and self.manifest.version == selected_version
@@ -729,7 +739,7 @@ def generate_entries(asset_type: FrayToolsAssetType) -> list[AssetEntry]:
     global plugin_entries, plugin_config_map, plugin_manifest_map, plugin_map
     global template_entries, template_config_map, template_manifest_map, template_map
     config_map = dict()
-    manifest_map = dict()
+    manifest_map: dict[str, TemplateManifest] | dict[str, PluginManifest] = dict()
     asset_map = dict()
     cfg_map = dict()
     match asset_type:
@@ -747,29 +757,31 @@ def generate_entries(asset_type: FrayToolsAssetType) -> list[AssetEntry]:
 
     match asset_type:
         case FrayToolsAssetType.Plugin:
+            tmp_plugin_manifest_map = cast(dict[str, PluginManifest], manifest_map)
             installed_entries = list(
                 map(
-                    lambda manifest: AssetEntry(
-                        plugin_manifest=manifest,
+                    lambda pmanifest: AssetEntry(
+                        plugin_manifest=pmanifest,
                         template_manifest=None,
                         config=None,
                         asset=None,
                         asset_type=asset_type,
                     ),
-                    manifest_map.values(),
+                    tmp_plugin_manifest_map.values(),
                 )
             )
         case FrayToolsAssetType.Template:
+            tmp_template_manifest_map = cast(dict[str, TemplateManifest], manifest_map)
             installed_entries = list(
                 map(
-                    lambda manifest: AssetEntry(
+                    lambda tmanifest: AssetEntry(
                         plugin_manifest=None,
-                        template_manifest=manifest,
+                        template_manifest=tmanifest,
                         config=None,
                         asset=None,
                         asset_type=asset_type,
                     ),
-                    manifest_map.values(),
+                    tmp_template_manifest_map.values(),
                 )
             )
 
@@ -816,7 +828,9 @@ def load_cached_asset_sources(asset_type: FrayToolsAssetType):
     global template_manifest_map, template_map, template_config_map
     global plugin_entries, template_entries
     asset_name = "Asset"
-    detect_fn = lambda: []
+    detect_fn: (
+        Callable[[], list[PluginManifest]] | Callable[[], list[TemplateManifest]]
+    ) = lambda: []
     cfg_map = dict()
     match asset_type:
         case FrayToolsAssetType.Plugin:
@@ -847,7 +861,7 @@ def load_cached_asset_sources(asset_type: FrayToolsAssetType):
             template_manifest_map = generate_manifest_map(detect_fn())
             template_map = generate_asset_map(assets)
     plugin_entries = generate_plugin_entries()
-    template_entries = generate_template_entries() 
+    template_entries = generate_template_entries()
     Cache.write_to_disk()
 
 
@@ -881,7 +895,9 @@ async def fetch_asset_source(id: str, asset_type: FrayToolsAssetType):
     global template_manifest_map, template_map
     global plugin_entries, template_entries
     asset_name = "Asset"
-    detect_fn = lambda: []
+    detect_fn: (
+        Callable[[], list[PluginManifest]] | Callable[[], list[TemplateManifest]]
+    ) = lambda: []
     cfg_map = dict()
     match asset_type:
         case FrayToolsAssetType.Plugin:
@@ -911,9 +927,9 @@ async def fetch_asset_source(id: str, asset_type: FrayToolsAssetType):
         case FrayToolsAssetType.Template:
             template_manifest_map = generate_manifest_map(detect_fn())
             template_map = generate_asset_map(assets)
-            
+
     plugin_entries = generate_plugin_entries()
-    template_entries = generate_template_entries() 
+    template_entries = generate_template_entries()
     Cache.write_to_disk()
 
 
@@ -922,7 +938,6 @@ async def fetch_asset_sources(asset_type: FrayToolsAssetType):
     global template_manifest_map, template_map
     global plugin_entries, template_entries
     asset_name = "Asset"
-    detect_fn = lambda: []
     cfg_map = dict()
     match asset_type:
         case FrayToolsAssetType.Plugin:
@@ -933,7 +948,6 @@ async def fetch_asset_sources(asset_type: FrayToolsAssetType):
             cfg_map = template_config_map
 
     print(f"Refreshing {asset_name} Sources...")
-    assets: list[FrayToolsAsset] = []
     for id in cfg_map.keys():
         await fetch_asset_source(id, asset_type)
     Cache.write_to_disk()
@@ -965,8 +979,6 @@ class MainWindow(QtWidgets.QMainWindow):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
 
-        menuBar = QMenuBar(self)
-
         self.setWindowTitle("FrayTools Manager")
         self.tabs = QTabWidget(self)
         self.plugin_list = AssetListWidget(FrayToolsAssetType.Plugin, self)
@@ -982,13 +994,13 @@ class MainWindow(QtWidgets.QMainWindow):
         add_sources_action = QAction("Add Source...", self)
         add_sources_action.triggered.connect(lambda: SourceEntryDialogue(self).exec())
 
-        fetch_sources_action = QAction("Fetch Sources", self)
-        fetch_sources_action.triggered.connect(
-            lambda: self.settings_menu.refresh_sources()
+        self.fetch_sources_action = QAction("Refresh", self)
+        self.fetch_sources_action.triggered.connect(
+            lambda: asyncio.ensure_future(self.settings_menu.refresh_sources())
         )
 
         sources_menu.addAction(add_sources_action)
-        sources_menu.addAction(fetch_sources_action)
+        sources_menu.addAction(self.fetch_sources_action)
 
         cache_menu = self.menuBar().addMenu("Cache")
 
@@ -1127,32 +1139,39 @@ class SettingsWidget(QtWidgets.QWidget):
         self.settings_items.setSpacing(10)
         layout.addWidget(self.settings_items)
         self.setLayout(layout)
+        self.clear_sources_button = QPushButton("Clear Sources Cache")
+        self.clear_download_button = QPushButton("Clear Download Cache")
+        self.refresh_button = QPushButton("Refresh")
+        self.defaults_button = QPushButton("Restore Defaults")
         self.simple_settings_button(
-            "Clear Sources Cache", "Clears the sources cache", self.clear_sources_cache
+            self.clear_sources_button,
+            "Clears the sources cache",
+            self.clear_sources_cache,
         )
         self.simple_settings_button(
-            "Clear Download Cache",
-            "Clears the sources cache",
+            self.clear_download_button,
+            "Clears the Download Cache",
             self.clear_download_cache,
         )
         self.simple_settings_button(
-            "Refresh",
+            self.refresh_button,
             "Updates Plugin Metadata, Subject to Github API Limits",
             lambda: asyncio.ensure_future(self.refresh_sources()),
         )
 
         self.simple_settings_button(
-            "Restore Defaults",
+            self.defaults_button,
             "Restores All Sources to their defaults",
-            self.restore_defaults
+            self.restore_defaults,
         )
 
-    def simple_settings_button(self, button_text: str, description: str, on_press):
+    def simple_settings_button(
+        self, button: QPushButton, description: str, on_press
+    ) -> None:
         widget = QWidget()
         widget.setMinimumHeight(40)
         row = QHBoxLayout()
         text = QLabel(description)
-        button = QPushButton(button_text)
         button.pressed.connect(on_press)
         row.addWidget(text)
         row.addWidget(button)
@@ -1164,9 +1183,9 @@ class SettingsWidget(QtWidgets.QWidget):
 
     def refresh_parent(self):
         self.parent_ref.reload()
-        
+
     @QtCore.Slot()
-    def restore_defaults(self):
+    def restore_defaults(self) -> None:
         msgBox: QMessageBox = QMessageBox()
         msgBox.setWindowTitle("Restore Defaults")
         msgBox.setText("Are you sure you want to restore defaults")
@@ -1176,11 +1195,10 @@ class SettingsWidget(QtWidgets.QWidget):
         msgBox.setDefaultButton(QMessageBox.StandardButton.No)
         if msgBox.exec() == QMessageBox.StandardButton.Yes:
             reload_cached_data(defaults=True)
-            refresh_data_ui_offline(self)
-            self.refresh_parent()
-            
+            self.parent_ref.reload()
+
     @QtCore.Slot()
-    def clear_sources_cache(self):
+    def clear_sources_cache(self) -> None:
         msgBox: QMessageBox = QMessageBox()
         msgBox.setWindowTitle("Clear Sources Cache")
         msgBox.setText("Are you sure you want to clear the sources Cache?")
@@ -1198,7 +1216,7 @@ class SettingsWidget(QtWidgets.QWidget):
             pass
 
     @QtCore.Slot()
-    def clear_download_cache(self):
+    def clear_download_cache(self) -> None:
         msgBox: QMessageBox = QMessageBox()
         msgBox.setWindowTitle("Clear Download Cache")
         msgBox.setText("Are you sure you want to clear the download cache?")
@@ -1216,7 +1234,7 @@ class SettingsWidget(QtWidgets.QWidget):
             pass
 
     @QtCore.Slot()
-    async def refresh_sources(self):
+    async def refresh_sources(self) -> None:
         msgBox: QMessageBox = QMessageBox(self)
         msgBox.setWindowTitle("Refresh Sources")
         msgBox.setText(
@@ -1228,6 +1246,10 @@ class SettingsWidget(QtWidgets.QWidget):
         msgBox.setDefaultButton(QMessageBox.StandardButton.Cancel)
         if msgBox.exec() == QMessageBox.StandardButton.Yes:
             try:
+                self.refresh_button.setEnabled(False)
+                self.refresh_button.setText("Refreshing...")
+                self.parent_ref.fetch_sources_action.setEnabled(False)
+                self.parent_ref.fetch_sources_action.setText("Refreshing..")
                 await refresh_data_async()
             except RateLimitExceeded:
                 QErrorMessage(self).showMessage("You've hit the GitHub API Rate Limit!")
@@ -1242,6 +1264,10 @@ class SettingsWidget(QtWidgets.QWidget):
             ) as e:
                 QErrorMessage(self).showMessage(f"{e}")
             finally:
+                self.refresh_button.setEnabled(True)
+                self.refresh_button.setText("Refresh")
+                self.parent_ref.fetch_sources_action.setEnabled(True)
+                self.parent_ref.fetch_sources_action.setText("Refresh")
                 self.refresh_parent()
 
         else:
@@ -1256,8 +1282,9 @@ class AssetListWidget(QtWidgets.QWidget):
         self.create_asset_list()
         self.add_installed_assets()
 
-        self.layout = QtWidgets.QVBoxLayout(self)
-        self.layout.addWidget(self.installed_items)
+        layout = QtWidgets.QVBoxLayout(self)
+        layout.addWidget(self.installed_items)
+        self.setLayout(layout)
 
     def create_asset_list(self):
         self.installed_items = QListWidget()
@@ -1298,7 +1325,7 @@ class AssetItemWidget(QtWidgets.QWidget):
         self.main_menu = parent.parent_ref
         self.entry = entry
         self.tags = []
-        self.downloading_tags = set()
+        self.downloading_tags: set[str] = set()
         self.selected_version = None
         self.asset_type = asset_type
         self.setContextMenuPolicy(Qt.ContextMenuPolicy.ActionsContextMenu)
@@ -1309,6 +1336,7 @@ class AssetItemWidget(QtWidgets.QWidget):
             if (
                 asset_type == FrayToolsAssetType.Plugin
                 and entry.manifest
+                and isinstance(entry.manifest, PluginManifest)
                 and entry.manifest.version in self.tags
             ):
                 self.selected_version = entry.manifest.version
@@ -1412,9 +1440,7 @@ class AssetItemWidget(QtWidgets.QWidget):
     def on_remove_download_cache(self):
         try:
             if self.entry.config and self.selection_list and self.selected_version:
-                download_path = download_location(
-                    self.entry.config.id, self.selected_version, self.asset_type
-                )
+                download_path = download_location(self.entry.config.id, self.asset_type)
                 if download_path.exists():
                     shutil.rmtree(download_path)
             refresh_data_ui_offline(self)
@@ -1444,7 +1470,7 @@ class AssetItemWidget(QtWidgets.QWidget):
             self.main_menu.reload()
             refresh_data_ui_offline(self)
             self.update_buttons()
-        except (IOError, RequestFailed,RequestError, ValueError) as e:
+        except (IOError, RequestFailed, RequestError, ValueError) as e:
             QErrorMessage(self).showMessage(str(e))
 
     @QtCore.Slot()
@@ -1477,10 +1503,9 @@ class AssetItemWidget(QtWidgets.QWidget):
                     if path.exists():
                         shutil.rmtree(path)
                         self.entry.manifest = None
-        except IOError as e:
-            refresh_data_ui_offline(self)
             self.main_menu.reload()
             self.update_buttons()
+        except IOError as e:
             QErrorMessage(self).showMessage(f"Something went wrong:\n {e}")
 
     @QtCore.Slot()
@@ -1604,6 +1629,7 @@ def main():
     signal.signal(signal.SIGINT, signal.SIG_DFL)
     with event_loop:
         event_loop.run_until_complete(app_close_event.wait())
+
 
 if __name__ == "__main__":
     main()
