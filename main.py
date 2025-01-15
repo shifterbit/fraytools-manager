@@ -371,8 +371,14 @@ class FrayToolsAsset:
             versions: list[FrayToolsAssetVersion] = []
 
             for release in releases.parsed_data:
+                asset_url:str
+                if len(release.assets) > 0:
+                    asset_url = release.assets[0].browser_download_url
+                elif asset_type == FrayToolsAssetType.Template and release.zipball_url is not None:
+                    asset_url = release.zipball_url
+                else:
+                    continue
                 tag = release.tag_name
-                asset_url = release.assets[0].browser_download_url
                 plugin_version = FrayToolsAssetVersion(asset_url, tag)
                 versions.append(plugin_version)
         except RequestError as e:
