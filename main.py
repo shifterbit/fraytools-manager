@@ -379,7 +379,7 @@ class FrayToolsAsset:
                     asset_url = release.zipball_url
                 else:
                     continue
-                tag = release.tag_name
+                tag = release.name
                 plugin_version = FrayToolsAssetVersion(asset_url, tag)
                 versions.append(plugin_version)
         except RequestError as e:
