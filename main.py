@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 import asyncio
 import json
 import os
@@ -174,6 +175,9 @@ class SourcesConfig:
 
     @staticmethod
     def from_config(path: str):
+        """
+        Reads the sources.json
+        """
         plugins: list[AssetConfig] = []
         templates: list[AssetConfig] = []
 
@@ -194,6 +198,9 @@ class SourcesConfig:
                 return parsed_config
 
     def contains_duplicates(self):
+        """
+        Confirm if the source configuration contains duplicates
+        """
         plugin_repos = set()
         plugin_ids = set()
         for asset in self.plugins:
@@ -258,6 +265,9 @@ class SourcesConfig:
 
     @staticmethod
     def generate_default_config():
+        """
+        Generates the default source configuration, containing essentials
+        """
         return SourcesConfig(
             plugins=[
                 AssetConfig(

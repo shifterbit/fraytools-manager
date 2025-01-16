@@ -17,6 +17,7 @@
       aiohttp
       qasync
       githubkit
+      requirements-parser
       markdown2
       mypy
     ];
