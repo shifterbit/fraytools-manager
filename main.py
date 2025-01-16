@@ -12,12 +12,12 @@ from typing import Callable, Generator, TypedDict, cast
 import markdown2
 import re
 
-from PySide6.QtWebEngineCore import QWebEnginePage
+# from PySide6.QtWebEngineCore import QWebEnginePage
 import aiohttp
 import githubkit
 from githubkit.exception import RateLimitExceeded, RequestFailed, RequestError
 from PySide6 import QtCore, QtWidgets
-from PySide6.QtWebEngineWidgets import QWebEngineView
+# from PySide6.QtWebEngineWidgets import QWebEngineView
 from PySide6.QtGui import QAction, QTextDocument, QTextObject, QWindow, Qt
 from PySide6.QtWidgets import (
     QComboBox,
@@ -1480,20 +1480,20 @@ class AssetItemWidget(QtWidgets.QWidget):
         )
         if self.entry.asset and self.selected_version:
             print("Showing Changelog")
-            webview: QWebEngineView = QWebEngineView()
+            md = self.entry.asset.get_changelog(self.tags.index(self.selected_version))
             html = markdown2.markdown(
-                self.entry.asset.get_changelog(self.tags.index(self.selected_version)),
+                md,
                 extras=["link-patterns"],
-                # link_patterns=
                 link_patterns=[(pattern, r"\1")],
             )
-            webview.setHtml(html)
-            print(html)
+            text = QTextBrowser()
+            text.setHtml(html)
+            text.setMinimumSize(600,600)
 
             self.subwindow = SubWindow(
-                webview, f"Changelog for {self.entry.asset.id} {self.selected_version}"
+                text, f"Changelog for {self.entry.asset.id} {self.selected_version}"
             )
-            self.subwindow.resize(webview.sizeHint())
+            self.subwindow.resize(text.sizeHint())
             self.subwindow.show()
 
     @QtCore.Slot()
