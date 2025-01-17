@@ -34,9 +34,7 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
     QWidget,
 )
-from githubkit.versions.v2022_11_28.types.group_0686 import (
-    WebhookPullRequestReviewThreadUnresolvedPropPullRequestPropRequestedReviewersItemsOneof1PropParentType,
-)
+
 from qasync import QEventLoop
 
 gh = githubkit.GitHub()
