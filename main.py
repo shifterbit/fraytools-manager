@@ -1,6 +1,3 @@
-# Compilation mode, standalone everywhere, except on macOS there app bundle
-# nuitka-project: --mode=app
-
 import asyncio
 import json
 import os
