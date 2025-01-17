@@ -19,6 +19,7 @@
       githubkit
       requirements-parser
       markdown2
+      nuitka
       mypy
     ];
 in
