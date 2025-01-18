@@ -15,6 +15,9 @@ from pathlib import Path
 from typing import Callable, Generator, TypedDict, cast
 import githubkit.versions.v2022_11_28
 import githubkit.versions.v2022_11_28.rest
+import githubkit.versions.v2022_11_28.models
+import githubkit.versions.v2022_11_28.types
+import githubkit.versions.v2022_11_28.webhooks
 import markdown2
 import re
 
