@@ -13,18 +13,20 @@ from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
 from typing import Callable, Generator, TypedDict, cast
-import githubkit.versions.v2022_11_28
-import githubkit.versions.v2022_11_28.rest
-import githubkit.versions.v2022_11_28.models
-import githubkit.versions.v2022_11_28.types
-import githubkit.versions.v2022_11_28.webhooks
+# import githubkit.versions.v2022_11_28
+# import githubkit.versions.v2022_11_28.rest
+# import githubkit.versions.v2022_11_28.models
+# import githubkit.versions.v2022_11_28.types
+# import githubkit.versions.v2022_11_28.webhooks
+import aiogithubapi.github
 import markdown2
 import re
 
 # from PySide6.QtWebEngineCore import QWebEnginePage
 import aiohttp
-from githubkit.exception import RateLimitExceeded, RequestFailed, RequestError
-from githubkit import GitHub
+
+from aiogithubapi import AIOGitHubAPIRatelimitException, GitHubAPI, GitHubException, GitHubReleaseAssetModel
+
 from PySide6 import QtCore, QtWidgets
 # from PySide6.QtWebEngineWidgets import QWebEngineView
 from PySide6.QtGui import QAction, QTextDocument, QTextObject, QWindow, Qt
@@ -43,10 +45,12 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
     QWidget,
 )
+def log(a):
+    # print(a)
+    pass
 
 from qasync import QEventLoop
 
-gh = GitHub()
 
 
 class InvalidSourceError(ValueError):
@@ -386,31 +390,34 @@ class FrayToolsAsset:
     async def fetch_data(
         config: AssetConfig | AssetConfig, asset_type: FrayToolsAssetType
     ):
-        global gh
+        gh = GitHubAPI()
         id = config.id
         owner = config.owner
         repo = config.repo
         try:
-            releases = await gh.rest.repos.async_list_releases(owner, repo)
             versions: list[FrayToolsAssetVersion] = []
-
-            for release in releases.parsed_data:
-                asset_url: str
-                if len(release.assets) > 0:
-                    asset_url = release.assets[0].browser_download_url
-                elif (
-                    asset_type == FrayToolsAssetType.Template
-                    and release.zipball_url is not None
-                ):
-                    asset_url = release.zipball_url
-                else:
-                    continue
-                tag = release.name
-                changelog: str = str(release.body)
-                plugin_version = FrayToolsAssetVersion(asset_url, str(tag), changelog)
-                versions.append(plugin_version)
-        except RequestError as e:
+            releases = await gh.repos.releases.list(f"{owner}/{repo}")
+            if releases.data is not None:
+                for release in releases.data:
+                    asset_url: str
+                    if release.assets and len(release.assets) > 0:
+                        asset: GitHubReleaseAssetModel = release.assets[0]
+                        asset_url = asset.browser_download_url
+                    elif (
+                        asset_type == FrayToolsAssetType.Template
+                        and release.zipball_url is not None
+                    ):
+                        asset_url = release.zipball_url
+                    else:
+                        continue
+                    tag = release.name
+                    changelog: str = str(release.body)
+                    plugin_version = FrayToolsAssetVersion(asset_url, str(tag), changelog)
+                    versions.append(plugin_version)
+        except GitHubException as e:
             raise SourceFetchError(f"Failed to Fetch Data for {id}: {e}")
+        finally:
+            await gh.close_session()
 
         return FrayToolsAsset(asset_type, id, owner, repo, versions)
 
@@ -418,7 +425,7 @@ class FrayToolsAsset:
         download_url = self.versions[index].url
         tag: str = self.versions[index].tag
         name: str = self.id
-        print(f"Starting Download of {name}-{tag}")
+        log(f"Starting Download of {name}-{tag}")
         download_path: Path = download_location(name, self.asset_type)
         if not download_path.exists():
             os.makedirs(download_path)
@@ -430,7 +437,7 @@ class FrayToolsAsset:
                     while True:
                         chunk = await response.content.read()
                         if not chunk:
-                            print(f"Finished Downloading {name}-{tag}")
+                            log(f"Finished Downloading {name}-{tag}")
                             break
                         file.write(chunk)
 
@@ -441,7 +448,7 @@ class FrayToolsAsset:
         plugin_manifests: dict[str, PluginManifest] | None = None,
         template_manifests: dict[str, TemplateManifest] | None = None,
     ):
-        print("Starting install")
+        log("Starting install")
         tag: str = self.versions[index].tag
         id: str = self.id
         manifests: dict[str, PluginManifest] | dict[str, TemplateManifest] = dict()
@@ -472,7 +479,7 @@ class FrayToolsAsset:
             if not os.path.isdir(outpath):
                 os.makedirs(outpath)
             extract_zip_without_root(filename, str(outpath))
-        print("Completed Install")
+        log("Completed Install")
 
     def get_changelog(self, index: int):
         return self.versions[index].changelog
@@ -693,7 +700,7 @@ class Cache:
     @staticmethod
     def clear():
         global sources_cache
-        print("Clearing Cache..")
+        log("Clearing Cache..")
         sources_cache = SourcesCache(plugins=dict(), templates=dict())
 
     @staticmethod
@@ -738,9 +745,9 @@ class Cache:
         json_str: str = json.dumps(sources_cache, indent=2)
         try:
             with open(cache_directory().joinpath("sources-lock.json"), "w") as f:
-                print("Writing to cache on disk...")
+                log("Writing to cache on disk...")
                 f.write(json_str)
-                print("Successfully wrote to cache on disk")
+                log("Successfully wrote to cache on disk")
         except IOError:
             raise CacheWriteError("Error Reading Cache")
         except ValueError:
@@ -753,9 +760,9 @@ class Cache:
         try:
             if cache_file.exists() and cache_file.is_file:
                 with open(cache_file, "r") as f:
-                    print("Reading cache from disk...")
+                    log("Reading cache from disk...")
                     sources_cache = json.loads(f.read())
-                    print("Successfully read cache from disk.")
+                    log("Successfully read cache from disk.")
         except IOError:
             raise CacheReadError("Unable to to read cache")
         except ValueError:
@@ -879,13 +886,13 @@ def load_cached_asset_sources(asset_type: FrayToolsAssetType):
             detect_fn = detect_templates
             cfg_map = template_config_map
     Cache.read_from_disk()
-    print(f"Loading Cached {asset_name} Sources...")
+    log(f"Loading Cached {asset_name} Sources...")
     assets: list[FrayToolsAsset] = []
     for config in cfg_map.values():
         asset: FrayToolsAsset
         if Cache.exists(config.id, asset_type):
             asset = Cache.get(config.id, asset_type)
-            print(f"Found {config.id} in cache")
+            log(f"Found {config.id} in cache")
             assets.append(asset)
 
     match asset_type:
@@ -944,15 +951,15 @@ async def fetch_asset_source(id: str, asset_type: FrayToolsAssetType):
             detect_fn = detect_templates
             cfg_map = template_config_map
 
-    print(f"Refreshing {asset_name} Source...")
+    log(f"Refreshing {asset_name} Source...")
     assets: list[FrayToolsAsset] = []
     if id in cfg_map.keys():
         config = cfg_map[id]
         asset: FrayToolsAsset
-        print(f"Fetching {config.id}")
+        log(f"Fetching {config.id}")
         asset = await FrayToolsAsset.fetch_data(config, asset_type)
         Cache.add(asset, asset_type)
-        print(f"Added {config.id} to cache")
+        log(f"Added {config.id} to cache")
         assets.append(asset)
 
     match asset_type:
@@ -982,7 +989,7 @@ async def fetch_asset_sources(asset_type: FrayToolsAssetType):
             asset_name = "Template"
             cfg_map = template_config_map
 
-    print(f"Refreshing {asset_name} Sources...")
+    log(f"Refreshing {asset_name} Sources...")
     for id in cfg_map.keys():
         await fetch_asset_source(id, asset_type)
     Cache.write_to_disk()
@@ -1292,7 +1299,7 @@ class SettingsWidget(QtWidgets.QWidget):
                 self.parent_ref.fetch_sources_action.setEnabled(False)
                 self.parent_ref.fetch_sources_action.setText("Refreshing..")
                 await refresh_data_async()
-            except RateLimitExceeded:
+            except AIOGitHubAPIRatelimitException:
                 display_error_popup(self, "You've hit the Github API Rate Limit!")
             except (
                 CacheWriteError,
@@ -1388,7 +1395,7 @@ class AssetItemWidget(QtWidgets.QWidget):
 
         if entry.asset and entry.config:
             self.tags = list(map(lambda v: v.tag, entry.asset.versions))
-            print(f"{entry.display_name()}: {self.tags}")
+            log(f"{entry.display_name()}: {self.tags}")
             if (
                 asset_type == FrayToolsAssetType.Plugin
                 and entry.manifest
@@ -1495,7 +1502,7 @@ class AssetItemWidget(QtWidgets.QWidget):
             re.X,
         )
         if self.entry.asset and self.selected_version:
-            print("Showing Changelog")
+            log("Showing Changelog")
             md = self.entry.asset.get_changelog(self.tags.index(self.selected_version))
             html = markdown2.markdown(
                 md,
@@ -1562,7 +1569,7 @@ class AssetItemWidget(QtWidgets.QWidget):
             self.main_menu.reload()
             refresh_data_ui_offline(self)
             self.update_buttons()
-        except (IOError, RequestFailed, RequestError, ValueError) as e:
+        except (IOError, GitHubException, ValueError) as e:
             display_error_popup(self, str(e))
 
     @QtCore.Slot()
@@ -1682,7 +1689,7 @@ class AssetItemWidget(QtWidgets.QWidget):
             self.download_action.setEnabled(False)
 
         if self.entry.can_uninstall(self.selected_version):
-            print(f"Can Uninstall {self.selected_version}")
+            log(f"Can Uninstall {self.selected_version}")
             self.uninstall_button.show()
             self.uninstall_action.setEnabled(True)
         else:
