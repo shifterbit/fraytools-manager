@@ -13,6 +13,7 @@ from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
 from typing import Callable, Generator, TypedDict, cast
+import githubkit.versions.v2022_11_28
 import markdown2
 import re
 
