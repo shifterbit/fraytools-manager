@@ -1,3 +1,7 @@
+# nuitka-project: --enable-plugin=pyside6
+# nuitka-project: --enable-plugin=anti-bloat 
+# nuitka-project: --enable-plugin=implicit-imports
+# nuitka-project: --enable-plugin=enum-compat
 import asyncio
 import json
 import os
@@ -14,8 +18,8 @@ import re
 
 # from PySide6.QtWebEngineCore import QWebEnginePage
 import aiohttp
-import githubkit
 from githubkit.exception import RateLimitExceeded, RequestFailed, RequestError
+from githubkit import GitHub
 from PySide6 import QtCore, QtWidgets
 # from PySide6.QtWebEngineWidgets import QWebEngineView
 from PySide6.QtGui import QAction, QTextDocument, QTextObject, QWindow, Qt
@@ -37,7 +41,7 @@ from PySide6.QtWidgets import (
 
 from qasync import QEventLoop
 
-gh = githubkit.GitHub()
+gh = GitHub()
 
 
 class InvalidSourceError(ValueError):
