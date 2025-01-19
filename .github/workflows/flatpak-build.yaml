@@ -30,7 +30,7 @@ jobs:
         with:
           gpg_private_key: ${{ secrets.GPG_PRIVATE_KEY }}
           passphrase: ${{ secrets.GPG_PASSPHRASE }}
-      - Install Flatpak Deps
+      - name: Install Flatpak Deps
         run: |
           flatpak install -y app/io.qt.PySide.BaseApp/x86_64/6.7
 
