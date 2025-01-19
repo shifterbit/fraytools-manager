@@ -23,7 +23,7 @@ jobs:
 
       - name: Run PyInstaller
         run: |
-          pyinstaller --windowed --optimise --name fraytools-manager main.py
+          pyinstaller --optimize 2 --name fraytools-manager --windowed main.py
 
       # Uploads artifact
       - name: Upload Artifact
