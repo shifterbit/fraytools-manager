@@ -16,7 +16,7 @@ finish-args:
   - --device=dri
   - --share=network
   - --env=QT_QPA_PLATFORM=wayland;xcb
-
+  - --filesystem=~/FrayToolsData
 modules:
   - ./python3-expandvars.json
   - ./python3-qasync.json
