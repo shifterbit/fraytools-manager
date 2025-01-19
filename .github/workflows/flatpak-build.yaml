@@ -34,8 +34,7 @@ jobs:
       - name: Build
         uses: andyholmes/flatter@main
         with:
-          files: |
-            io.github.shifterbit.FrayToolsManager.yaml
+          files: io.github.shifterbit.FrayToolsManager.yaml
           arch: ${{ matrix.arch }}
           gpg-sign: ${{ steps.gpg.outputs.fingerprint }}
           upload-bundles: true
@@ -43,6 +42,8 @@ jobs:
           upload-pages-includes: |
             default.css
             index.html
+          flatpak-builder-args: |
+            --install-deps-from flathub
 
   # See "Github Pages" below
   deploy:
