@@ -2,12 +2,10 @@
   python-packages = ps:
     with ps; [
       pyside6
-      cx-freeze
       aiohttp
       qasync
       requirements-parser
       markdown2
-      nuitka
       mypy
       zipfile2
       cx-freeze

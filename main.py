@@ -1,7 +1,4 @@
-# nuitka-project: --enable-plugin=pyside6
-# nuitka-project: --enable-plugin=anti-bloat 
-# nuitka-project: --enable-plugin=implicit-imports
-# nuitka-project: --enable-plugin=enum-compat
+#!/usr/bin/env python3
 import asyncio
 import json
 import os
@@ -13,11 +10,6 @@ from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
 from typing import Callable, Generator, TypedDict, cast
-# import githubkit.versions.v2022_11_28
-# import githubkit.versions.v2022_11_28.rest
-# import githubkit.versions.v2022_11_28.models
-# import githubkit.versions.v2022_11_28.types
-# import githubkit.versions.v2022_11_28.webhooks
 import aiogithubapi.github
 import markdown2
 import re
