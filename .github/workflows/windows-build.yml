@@ -23,19 +23,12 @@ jobs:
 
       - name: Run PyInstaller
         run: |
-          pyinstaller --onefile main.py
-      # Build python script into a single execute or app folder (macOS)
-      # - uses: Nuitka/Nuitka-Action@main
-      #   with:
-      #     nuitka-version: main
-      #     script-name: main.py
-      #     mode: app
-      #     enable-plugins: pyside6
+          pyinstaller --windowed --optimise --name fraytools-manager main.py
 
       # Uploads artifact
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: exe
-          path: dist/main.exe
+          name: fraytools-manager
+          path: dist/
           include-hidden-files: true

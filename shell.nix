@@ -8,8 +8,8 @@
       markdown2
       mypy
       zipfile2
-      cx-freeze
       aiogithubapi
+      pyinstaller
     ];
 in
   pkgs.mkShell {
