@@ -30,6 +30,9 @@ jobs:
         with:
           gpg_private_key: ${{ secrets.GPG_PRIVATE_KEY }}
           passphrase: ${{ secrets.GPG_PASSPHRASE }}
+      - Install Flatpak Deps
+        run: |
+          flatpak install -y app/io.qt.PySide.BaseApp/x86_64/6.7
 
       - name: Build
         uses: andyholmes/flatter@main
@@ -42,8 +45,8 @@ jobs:
           upload-pages-includes: |
             default.css
             index.html
-          flatpak-builder-args: |
-            --install-deps-from flathub
+          flatpak-build-bundle-args: |
+            --runtime-repo=https://platform.io/platform.flatpakrepo
 
   # See "Github Pages" below
   deploy:
