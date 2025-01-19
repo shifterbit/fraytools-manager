@@ -470,15 +470,25 @@ class FrayToolsAsset:
 
         filename: str = str(download_location_file(id, tag, asset_type))
         if manifests is not None and self.id in manifests.keys():
-            manifest_path = manifests[self.id].path
+            manifest_path = Path(manifests[self.id].path)
 
         if manifest_path is not None:
             extract_zip_without_root(filename, str(manifest_path))
+            with open(manifest_path.joinpath(".fraytools-manager-version"), "w") as text_file:
+                _ = text_file.write(tag)
         else:
             outpath = outputdir.joinpath(id)
             if not os.path.isdir(outpath):
                 os.makedirs(outpath)
+            for path in outpath.iterdir():
+                if path.is_file():
+                    path.unlink()
+                if path.is_dir():
+                    shutil.rmtree(str(path))
+
             extract_zip_without_root(filename, str(outpath))
+            with open(outpath.joinpath(".fraytools-manager-version"), "w") as text_file:
+                _ = text_file.write(tag)
         log("Completed Install")
 
     def get_changelog(self, index: int):
