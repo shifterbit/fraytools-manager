@@ -27,9 +27,15 @@ modules:
   - name: FrayToolsManager
     buildsystem: simple
     build-commands:
-      - mkdir -p bin
+      - mkdir -p bin share/{applications,icons/hicolor/256x256/apps}
       - chmod +x main.py
       - mv main.py ${FLATPAK_DEST}/bin/fraytools-manager
+      - mv ${FLATPAK_ID}.desktop ${FLATPAK_DEST}/share/application/${FLATPAK_ID}.desktop
+      - mv ${FLATPAK_ID}.metainfo.xml ${FLATPAK_DEST}/share/metainfo/${FLATPAK_ID}.metainfo.xml
     sources:
       - type: file
         path: main.py
+      - type: file
+        path: io.github.shifterbit.FrayToolsManager.desktop
+      - type: file
+        path: io.github.shifterbit.FrayToolsManager.metainfo.xml

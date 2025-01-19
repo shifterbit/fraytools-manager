@@ -1,0 +1,11 @@
+[Desktop Entry]
+Version=0.0.1
+Type=Application
+
+Name=FrayTools Manager
+Comment=A Plugin and Template Manager for FrayTools
+Categories=Development;Qt;
+
+Icon=fraytoolsmanager
+Exec=fraytools-manager
+Terminal=false
