@@ -1,0 +1,14 @@
+{
+    "name": "python3-markdown2",
+    "buildsystem": "simple",
+    "build-commands": [
+        "pip3 install --verbose --exists-action=i --no-index --find-links=\"file://${PWD}\" --prefix=${FLATPAK_DEST} \"markdown2\" --no-build-isolation"
+    ],
+    "sources": [
+        {
+            "type": "file",
+            "url": "https://files.pythonhosted.org/packages/68/53/baf1f8bd93a9cd5a1b6116041f17dba742bef57cbddb0484f792753c3a2e/markdown2-2.5.2-py3-none-any.whl",
+            "sha256": "bed80d301a33845be633acde47a67cf265c57ddf9cbe3cb11c49c18016c2f581"
+        }
+    ]
+}

@@ -1,0 +1,14 @@
+{
+    "name": "python3-zipfile2",
+    "buildsystem": "simple",
+    "build-commands": [
+        "pip3 install --verbose --exists-action=i --no-index --find-links=\"file://${PWD}\" --prefix=${FLATPAK_DEST} \"zipfile2\" --no-build-isolation"
+    ],
+    "sources": [
+        {
+            "type": "file",
+            "url": "https://files.pythonhosted.org/packages/60/ad/d6bc08f235b66c11bbb76df41b973ce93544a907cc0e23c726ea374eee79/zipfile2-0.0.12-py2.py3-none-any.whl",
+            "sha256": "b9adf577d825461480e485027116c035f666b72ac3911af71aa93da6e0579eb8"
+        }
+    ]
+}
