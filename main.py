@@ -531,7 +531,18 @@ class AssetEntry:
         return display_name
 
     def is_installed(self, selected_version: str | None) -> bool:
-        return (
+        found_version = False
+        if self.manifest:
+            path = Path(self.manifest.path).joinpath(".fraytools-manager-version")
+            try:
+                if path.exists() and path.is_file():
+                    with open(path, "r") as version:
+                        version_string = version.read()
+                        found_version = version_string == selected_version
+            except IOError:
+                found_version = False
+
+        return found_version or (
             self.manifest is not None and (self.asset is None or self.config is None)
         ) or (
             self.manifest is not None
