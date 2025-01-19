@@ -8,7 +8,7 @@ jobs:
     name: Flatter
     runs-on: ubuntu-latest
     container:
-      image: ghcr.io/andyholmes/flatter/kde:master
+      image: ghcr.io/andyholmes/flatter/kde:6.7
       options: --privileged
 
     strategy:
@@ -35,7 +35,6 @@ jobs:
         uses: andyholmes/flatter@main
         with:
           files: |
-            build-aux/flatpak/com.example.App.json
             io.github.shifterbit.FrayToolsManager.yaml
           arch: ${{ matrix.arch }}
           gpg-sign: ${{ steps.gpg.outputs.fingerprint }}
