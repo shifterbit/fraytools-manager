@@ -6,6 +6,6 @@ Name=FrayTools Manager
 Comment=A Plugin and Template Manager for FrayTools
 Categories=Development;Qt;
 
-Icon=fraytoolsmanager
+Icon=io.github.shifterbit.FrayToolsManager
 Exec=fraytools-manager
 Terminal=false

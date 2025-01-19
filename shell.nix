@@ -13,6 +13,6 @@
     ];
 in
   pkgs.mkShell {
-    packages = [pkgs.pipenv (pkgs.python3.withPackages python-packages)];
+    packages = [pkgs.appstream pkgs.pipenv (pkgs.python3.withPackages python-packages)];
     buildInputs = with pkgs; [libsForQt5.qt5.qtbase libz];
   }
