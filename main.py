@@ -1525,6 +1525,7 @@ class AssetItemWidget(QtWidgets.QWidget):
             text = QTextBrowser()
             text.setHtml(html)
             text.setMinimumSize(600,600)
+            text.setOpenExternalLinks(True)
 
             self.subwindow = SubWindow(
                 text, f"Changelog for {self.entry.asset.id} {self.selected_version}"
