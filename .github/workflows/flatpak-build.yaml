@@ -46,5 +46,5 @@ jobs:
             default.css
             index.html
           flatpak-build-bundle-args: |
-            --runtime-repo=https://platform.io/platform.flatpakrepo
+            --runtime-repo=https://flathub.org/repo/flathub.flatpakrepo
 
