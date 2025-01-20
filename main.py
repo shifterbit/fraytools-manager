@@ -111,7 +111,9 @@ def extract_zip_without_root(archive_name: str, path: str):
     with zipfile.ZipFile(f"{archive_name}", mode="r") as archive:
         # We will use the first directory with no more than one path segment as the root.
         root = next(info for info in archive.infolist() if _is_root(info))
-        if root and len(archive.infolist()) == 1:
+
+        top_level_dirs = set(info.split("/")[0] for info in archive.namelist())
+        if root and len(top_level_dirs) == 1:
             archive.extractall(
                 path=path, members=_members_without_root(archive, root.filename)
             )
