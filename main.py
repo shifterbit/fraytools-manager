@@ -305,7 +305,7 @@ class SourcesConfig:
             ],
         )
 
-    def add_entry(self, owner: str, repo: str, id: str, asset_type: FrayToolsAssetType):
+    def add_entry(self,owner: str, repo: str, id: str, asset_type: FrayToolsAssetType):
         match asset_type:
             case FrayToolsAssetType.Plugin:
                 for plugin in self.plugins:
@@ -331,12 +331,31 @@ class SourcesConfig:
                 self.templates.append(AssetConfig(owner=owner, repo=repo, id=id))
         self.write_config()
 
+    def edit_entry(self,index:int , id: str, owner:str, repo:str, asset_type: FrayToolsAssetType):
+        match asset_type:
+            case FrayToolsAssetType.Plugin:
+                for idx, plugin in enumerate(self.plugins):
+                    if id == plugin.id:
+                        self.plugins[idx] = AssetConfig(owner=owner, repo=repo, id=id)
+            case FrayToolsAssetType.Template:
+                for idx, template in enumerate(self.templates):
+                    if id == template.id:
+                        self.templates[idx] = AssetConfig(owner=owner, repo=repo, id=id)
+        self.write_config()
+
     def remove_entry(self, id: str, asset_type: FrayToolsAssetType):
         match asset_type:
             case FrayToolsAssetType.Plugin:
                 self.plugins = list(filter(lambda a: a.id != id, self.plugins))
             case FrayToolsAssetType.Template:
                 self.templates = list(filter(lambda a: a.id != id, self.templates))
+
+    def index(self, asset_config:AssetConfig, asset_type: FrayToolsAssetType) -> int:
+        match asset_type:
+            case FrayToolsAssetType.Plugin:
+                return self.plugins.index(asset_config)
+            case FrayToolsAssetType.Template:
+                return self.templates.index(asset_config)
 
 
 @dataclass
@@ -1081,11 +1100,20 @@ class MainWindow(QtWidgets.QMainWindow):
 
 
 class SourceEntryDialogue(QtWidgets.QDialog):
-    def __init__(self, main_menu: MainWindow):
+    def __init__(self, main_menu: MainWindow,existing_config:AssetConfig = None, asset_type:FrayToolsAssetType = None):
         super().__init__()
+        self.edit_mode = existing_config is not None
         self.asset_type: FrayToolsAssetType = FrayToolsAssetType.Plugin
-        self.asset_config: AssetConfig = AssetConfig(id="", owner="", repo="")
-        self.setWindowTitle("Add Source Entry")
+        if asset_type is not None:
+            self.asset_type = asset_type
+            self.index:int = sources_config.index(existing_config, self.asset_type)
+
+        if self.edit_mode:
+            self.asset_config = existing_config
+            self.setWindowTitle("Edit Source Entry")
+        else:
+            self.asset_config: AssetConfig = AssetConfig(id="", owner="", repo="")
+            self.setWindowTitle("Add Source Entry")
         self.setMinimumWidth(400)
         self.main_menu = main_menu
 
@@ -1107,7 +1135,11 @@ class SourceEntryDialogue(QtWidgets.QDialog):
         self.asset_type_input.setCurrentIndex(0)
 
         self.add_button = QPushButton(self)
-        self.add_button.setText("Add Source")
+        if self.edit_mode:
+            self.add_button.setText("Apply Changes")
+        else:
+            self.add_button.setText("Add Source")
+
         self.add_button.pressed.connect(self.submitted)
 
         self.items_layout = QtWidgets.QVBoxLayout(self)
@@ -1120,6 +1152,16 @@ class SourceEntryDialogue(QtWidgets.QDialog):
             self.create_row([QLabel("Asset Type"), self.asset_type_input])
         )
         self.items_layout.addWidget(self.add_button)
+        if self.asset_type == FrayToolsAssetType.Plugin:
+            self.on_select(0)
+        elif self.asset_type == FrayToolsAssetType.Template: 
+            self.on_select(1)
+
+        if self.edit_mode:
+            self.owner_edited(self.asset_config.owner)
+            self.repo_edited(self.asset_config.repo)
+            self.id_edited(self.asset_config.id)
+            self.asset_type_input.setDisabled(True)
 
         self.setLayout(self.items_layout)
 
@@ -1141,12 +1183,22 @@ class SourceEntryDialogue(QtWidgets.QDialog):
             return
 
         try:
-            sources_config.add_entry(
-                owner=self.asset_config.owner,
-                repo=self.asset_config.repo,
-                id=self.asset_config.id,
-                asset_type=self.asset_type,
-            )
+
+            if self.edit_mode:
+                sources_config.edit_entry(
+                    index = self.index,
+                    owner=self.asset_config.owner,
+                    repo=self.asset_config.repo,
+                    id=self.asset_config.id,
+                    asset_type=self.asset_type,
+                )
+            else:
+                sources_config.add_entry(
+                    owner=self.asset_config.owner,
+                    repo=self.asset_config.repo,
+                    id=self.asset_config.id,
+                    asset_type=self.asset_type,
+                )
             refresh_data_ui_offline(self)
             self.main_menu.reload()
             self.accept()
@@ -1166,6 +1218,7 @@ class SourceEntryDialogue(QtWidgets.QDialog):
     @QtCore.Slot()
     def id_edited(self, text: str):
         self.asset_config.id = text
+        self.id_input.setText(text)
 
     @QtCore.Slot()
     def on_select(self, index):
@@ -1539,8 +1592,9 @@ class AssetItemWidget(QtWidgets.QWidget):
 
 
     @QtCore.Slot()
-    def on_edit(self):
-        pass
+    def on_edit(self) -> None:
+        dialog: SourceEntryDialogue = SourceEntryDialogue(self.main_menu,self.entry.config,self.asset_type)
+        dialog.exec()
 
     @QtCore.Slot()
     def on_remove_source(self):
@@ -1701,7 +1755,7 @@ class AssetItemWidget(QtWidgets.QWidget):
         self.text_label.setText(self.entry.display_name())
 
         if self.entry.config:
-            self.edit_button.hide()
+            self.edit_button.show()
         else: 
             self.edit_button.hide()
 
