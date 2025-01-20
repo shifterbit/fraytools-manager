@@ -56,7 +56,6 @@ class SourceIOError(IOError):
 class SourceReadError(SourceIOError):
     pass
 
-
 class SourceWriteError(SourceIOError):
     pass
 
@@ -112,7 +111,7 @@ def extract_zip_without_root(archive_name: str, path: str):
     with zipfile.ZipFile(f"{archive_name}", mode="r") as archive:
         # We will use the first directory with no more than one path segment as the root.
         root = next(info for info in archive.infolist() if _is_root(info))
-        if root:
+        if root and len(archive.infolist()) == 1:
             archive.extractall(
                 path=path, members=_members_without_root(archive, root.filename)
             )
@@ -883,15 +882,11 @@ def load_cached_asset_sources(asset_type: FrayToolsAssetType):
     global template_manifest_map, template_map, template_config_map
     global plugin_entries, template_entries
     asset_name = "Asset"
-    detect_fn: (
-        Callable[[], list[PluginManifest]] | Callable[[], list[TemplateManifest]]
-    ) = lambda: []
     cfg_map = dict()
     match asset_type:
         case FrayToolsAssetType.Plugin:
             plugin_config_map = generate_config_map(sources_config.plugins)
             asset_name = "Plugin"
-            detect_fn = detect_plugins
             cfg_map = plugin_config_map
         case FrayToolsAssetType.Template:
             template_config_map = generate_config_map(sources_config.templates)
@@ -910,10 +905,10 @@ def load_cached_asset_sources(asset_type: FrayToolsAssetType):
 
     match asset_type:
         case FrayToolsAssetType.Plugin:
-            plugin_manifest_map = generate_manifest_map(detect_fn())
+            plugin_manifest_map = generate_manifest_map(detect_plugins())
             plugin_map = generate_asset_map(assets)
         case FrayToolsAssetType.Template:
-            template_manifest_map = generate_manifest_map(detect_fn())
+            template_manifest_map = generate_manifest_map(detect_templates())
             template_map = generate_asset_map(assets)
     plugin_entries = generate_plugin_entries()
     template_entries = generate_template_entries()
@@ -1454,9 +1449,13 @@ class AssetItemWidget(QtWidgets.QWidget):
         self.uninstall_action = QAction("Uninstall", self)
         self.uninstall_action.triggered.connect(self.on_uninstall)
 
+        self.edit_action = QAction("Edit Source")
+        self.edit_action.triggered.connect(self.on_edit)
+
         self.addAction(self.refresh_action)
         self.addAction(self.delete_download_action)
         self.addAction(self.remove_source_action)
+        self.addAction(self.edit_action)
         self.addAction(self.show_changelog_action)
         self.addAction(self.download_action)
         self.addAction(self.install_action)
@@ -1486,6 +1485,11 @@ class AssetItemWidget(QtWidgets.QWidget):
         self.installed_button.setMaximumWidth(60)
         self.installed_button.setEnabled(False)
         self.row.addWidget(self.installed_button)
+
+        self.edit_button = QPushButton("Edit")
+        self.edit_button.setMaximumWidth(60)
+        self.edit_button.pressed.connect(self.on_edit)
+        self.row.addWidget(self.edit_button)
 
         self.selection_list = QComboBox(self)
         self.selection_list.currentIndexChanged.connect(self.on_select)
@@ -1532,6 +1536,11 @@ class AssetItemWidget(QtWidgets.QWidget):
             )
             self.subwindow.resize(text.sizeHint())
             self.subwindow.show()
+
+
+    @QtCore.Slot()
+    def on_edit(self):
+        pass
 
     @QtCore.Slot()
     def on_remove_source(self):
@@ -1649,10 +1658,10 @@ class AssetItemWidget(QtWidgets.QWidget):
                 elif self.asset_type == FrayToolsAssetType.Template:
                     self.entry.manifest = template_manifest_map[self.entry.asset.id]
         except IOError as e:
-            display_error_popup(self, str(e))
+            display_error_popup(self, "IO ERROR HERE" + str(e))
             self.on_remove_download()
         except BaseException as e:
-            display_error_popup(self, str(e))
+             display_error_popup(self, "BASE EXCEPTION HERE" + str(e))
         finally:
             self.install_button.setText("Install")
             self.install_action.setText("Install")
@@ -1690,6 +1699,11 @@ class AssetItemWidget(QtWidgets.QWidget):
         plugin: FrayToolsAsset | None = entry.asset
 
         self.text_label.setText(self.entry.display_name())
+
+        if self.entry.config:
+            self.edit_button.hide()
+        else: 
+            self.edit_button.hide()
 
         if self.entry.is_installed(self.selected_version):
             self.installed_button.show()
