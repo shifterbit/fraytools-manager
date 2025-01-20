@@ -1758,8 +1758,17 @@ class AssetItemWidget(QtWidgets.QWidget):
 
         if self.entry.config:
             self.edit_button.show()
+            self.edit_action.setEnabled(True)
+            self.remove_source_action.setEnabled(True)
         else: 
             self.edit_button.hide()
+            self.remove_source_action.setEnabled(False)
+            self.edit_action.setEnabled(False)
+
+        if self.entry.asset:
+            self.show_changelog_action.setEnabled(True)
+        else:
+            self.show_changelog_action.setEnabled(False)
 
         if self.entry.is_installed(self.selected_version):
             self.installed_button.show()
