@@ -3,7 +3,7 @@
   <id>io.github.shifterbit.FrayToolsManager</id>
   
   <name>FrayTools Manager</name>
-  <developer_name>shifterbit<developer_name>
+  <!-- <developer_name>shifterbit</developer_name> -->
   <launchable type="desktop-id">io.github.shifterbit.FrayToolsManager.desktop</launchable>
   <summary>A Plugin and Template Manager for FrayTools</summary>
   
@@ -12,7 +12,7 @@
   <url type="homepage">https://github.com/shifterbit/fraytools-manager</url>
   <developer id="io.github.shifterbit">
     <name>shifterbit</name>
-    </developer>
+  </developer>
   <content_rating type="oars-1.0" />
   
   <supports>
