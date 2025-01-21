@@ -3,6 +3,8 @@
   <id>io.github.shifterbit.FrayToolsManager</id>
   
   <name>FrayTools Manager</name>
+  <developer_name>shifterbit<developer_name>
+  <launchable type="desktop-id">io.github.shifterbit.FrayToolsManager.desktop</launchable>
   <summary>A Plugin and Template Manager for FrayTools</summary>
   
   <metadata_license>CC-BY-SA-4.0</metadata_license>
@@ -21,12 +23,13 @@
 
   <description>
     <p>
-      A GUI Plugin and Template Manager for FrayTools, that helps you manage your plugins and templates. Currently supports:
-
+      A GUI Plugin and Template Manager for FrayTools, that helps you manage your plugins and templates. 
     </p>
+    <p> Currently supports: </p>
     <ul>
       <li>Viewing Changelogs</li>
-      <li>Downloading, Installing, Switching Versions(and Updating), Uninstalling Plugins and Templates</li>
+      <li>Downloading, Installing, and Uninstalling Plugins and Templates</li>
+      <li>Convenient Version Swapping</li>
       <li>Builtin Plugin detection for existing plugins and templates</li>
       <li>Supports all the official plugins and templates out of the box</li>
       <li>Caches Plugin and Template downloads for fast reinstallations</li>
@@ -35,24 +38,21 @@
     </ul>
   </description>
   
-  <launchable type="desktop-id">io.github.shifterbit.FrayToolsManager.desktop</launchable>
   <screenshots>
     <screenshot type="default">
+      <image>https://raw.githubusercontent.com/shifterbit/fraytools-manager/refs/heads/master/screenshots/main_menu.png</image>
       <caption>Main menu</caption>
-      <image type="source">https://raw.githubusercontent.com/shifterbit/fraytools-manager/refs/heads/master/screenshots/main_menu.png</image>
     </screenshot>
     <screenshot>
+      <image>https://raw.githubusercontent.com/shifterbit/fraytools-manager/refs/heads/master/screenshots/adding_source.png</image>
       <caption>Source Entry Popup</caption>
-      <image type="source">https://raw.githubusercontent.com/shifterbit/fraytools-manager/refs/heads/master/screenshots/adding_source.png</image>
     </screenshot>
     <screenshot>
+      <image>https://raw.githubusercontent.com/shifterbit/fraytools-manager/refs/heads/master/screenshots/changelog_view.png</image>
       <caption>Example changelog view</caption>
-      <image type="source">https://raw.githubusercontent.com/shifterbit/fraytools-manager/refs/heads/master/screenshots/changelog_view.png</image>
     </screenshot>
   </screenshots>
   <releases>
-    <release version="0.0.4" date="2025-01-20">
-      First Flatpak Release!
-    </release>
+    <release version="0.0.4" date="2025-01-20"/>
   </releases>
 </component>
