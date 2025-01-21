@@ -10,10 +10,8 @@ cleanup-commands:
   - /app/cleanup-BaseApp.sh
 
 finish-args:
-  - --share=ipc
   - --socket=fallback-x11
   - --socket=wayland
-  - --device=dri
   - --share=network
   - --env=QT_QPA_PLATFORM=wayland;xcb
   - --filesystem=~/FrayToolsData

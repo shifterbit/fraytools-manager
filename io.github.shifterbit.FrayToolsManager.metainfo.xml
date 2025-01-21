@@ -3,7 +3,7 @@
   <id>io.github.shifterbit.FrayToolsManager</id>
   
   <name>FrayTools Manager</name>
-  <!-- <developer_name>shifterbit</developer_name> -->
+  <developer_name>shifterbit</developer_name>
   <launchable type="desktop-id">io.github.shifterbit.FrayToolsManager.desktop</launchable>
   <summary>A Plugin and Template Manager for FrayTools</summary>
   
@@ -40,15 +40,15 @@
   
   <screenshots>
     <screenshot type="default">
-      <image>https://raw.githubusercontent.com/shifterbit/fraytools-manager/refs/heads/master/screenshots/main_menu.png</image>
+      <image type="source" width="1600" height="900">https://raw.githubusercontent.com/shifterbit/fraytools-manager/master/screenshots/main_menu.png</image>
       <caption>Main menu</caption>
     </screenshot>
     <screenshot>
-      <image>https://raw.githubusercontent.com/shifterbit/fraytools-manager/refs/heads/master/screenshots/adding_source.png</image>
+      <image type="source" width="1600" height="900">https://raw.githubusercontent.com/shifterbit/fraytools-manager/master/screenshots/adding_source.png</image>
       <caption>Source Entry Popup</caption>
     </screenshot>
     <screenshot>
-      <image>https://raw.githubusercontent.com/shifterbit/fraytools-manager/refs/heads/master/screenshots/changelog_view.png</image>
+      <image type="source" width="1600" height="900">https://raw.githubusercontent.com/shifterbit/fraytools-manager/master/screenshots/changelog_view.png</image>
       <caption>Example changelog view</caption>
     </screenshot>
   </screenshots>
