@@ -50,4 +50,9 @@
       <image type="source">https://raw.githubusercontent.com/shifterbit/fraytools-manager/refs/heads/master/screenshots/changelog_view.png</image>
     </screenshot>
   </screenshots>
+  <releases>
+    <release version="0.0.4" date="2025-01-20">
+      First Flatpak Release!
+    </release>
+  </releases>
 </component>
