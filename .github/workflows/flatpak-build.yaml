@@ -11,13 +11,6 @@ jobs:
       image: ghcr.io/andyholmes/flatter/kde:6.7
       options: --privileged
 
-    strategy:
-      matrix:
-        arch: [x86_64]
-      fail-fast: false
-      # Only one job at a time can use the shared repository cache
-      max-parallel: 1
-
     steps:
       # Checkout a repository with Flatpak manifests
       - name: Checkout
@@ -38,10 +31,25 @@ jobs:
         uses: andyholmes/flatter@main
         with:
           files: io.github.shifterbit.FrayToolsManager.yaml
-          arch: ${{ matrix.arch }}
+          arch: x86_64
           gpg-sign: ${{ steps.gpg.outputs.fingerprint }}
-          upload-bundles: true
-          upload-pages-artifact: false
+          upload-bundles: false
+          upload-pages-artifact: true
           flatpak-build-bundle-args: |
             --runtime-repo=https://flathub.org/repo/flathub.flatpakrepo
+  deploy:
+    name: Deploy
+    runs-on: ubuntu-latest
+    needs: flatter
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+
+    steps:
+      - name: GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
 
