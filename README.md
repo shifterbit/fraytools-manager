@@ -2,7 +2,13 @@
 A GUI Plugin and Template Manager for FrayTools
 
 <a href="https://www.flaticon.com/free-icons/tool-box" title="tool box icons">Tool box icons created by pongsakornRed - Flaticon</a>
-
+## Adding the Flatpak Repo
+```sh
+flatpak remote-add --if-not-exists fraytools-manager https://shifterbit.github.io/fraytools-manager/index.flatpakrepo
+flatpak install io.github.shifterbit.FrayToolsManager
+```
+Alternatively you can open the url in discover and search for fraytools manager
+- https://shifterbit.github.io/fraytools-manager/index.flatpakrepo
 ## Screenshots
 ![image](https://github.com/user-attachments/assets/5a13da14-9f19-40b1-8aa0-8b5c15d69601)
 ![image](https://github.com/user-attachments/assets/cf4abbbd-4a59-411e-a95f-d8bb6a9446d5)
