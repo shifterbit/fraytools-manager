@@ -45,13 +45,13 @@ A tool that let's a you manage your fraytools plugins and templates
   <launchable type="desktop-id">io.github.shifterbit.FrayToolsManager.desktop</launchable>
   <screenshots>
     <screenshot type="default">
-      <image>https://raw.githubusercontent.com/shifterbit/fraytools-manager/refs/heads/master/screenshots/main_menu.png</image>
+      <image type="source">https://raw.githubusercontent.com/shifterbit/fraytools-manager/refs/heads/master/screenshots/main_menu.png</image>
     </screenshot>
     <screenshot>
-      <image>https://raw.githubusercontent.com/shifterbit/fraytools-manager/refs/heads/master/screenshots/adding_source.png</image>
+      <image type="source">https://raw.githubusercontent.com/shifterbit/fraytools-manager/refs/heads/master/screenshots/adding_source.png</image>
     </screenshot>
     <screenshot>
-      <image>https://raw.githubusercontent.com/shifterbit/fraytools-manager/refs/heads/master/screenshots/changelog_view.png</image>
+      <image type="source">https://raw.githubusercontent.com/shifterbit/fraytools-manager/refs/heads/master/screenshots/changelog_view.png</image>
     </screenshot>
   </screenshots>
 </component>
