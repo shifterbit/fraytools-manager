@@ -1,4 +1,4 @@
-name: Flatpak Bundle
+name: Flatpak Repo
 on:
   # Rebuild once a day
   workflow_dispatch:
