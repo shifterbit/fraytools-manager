@@ -7,12 +7,10 @@
   <launchable type="desktop-id">io.github.shifterbit.FrayToolsManager.desktop</launchable>
   <summary>A Plugin and Template Manager for FrayTools</summary>
   
-  <metadata_license>CC-BY-SA-4.0</metadata_license>
+  <metadata_license>CC0-1.0</metadata_license>
   <project_license>LGPL-2.1-or-later</project_license>
   <url type="homepage">https://github.com/shifterbit/fraytools-manager</url>
-  <developer id="io.github.shifterbit">
-    <name>shifterbit</name>
-  </developer>
+  <developer_name>shifterbit</developer_name>
   <content_rating type="oars-1.0" />
   
   <supports>
@@ -37,18 +35,33 @@
       <li>Editing And Template Sources</li>
     </ul>
   </description>
+
+    <categories>
+        <category>Development</category>
+        <category>PackageManager</category>
+    </categories>
+
+    <keywords>
+      <keyword>development</keyword>
+      <keyword>programming</keyword>
+      <keyword>fraymakers</keyword>
+      <keyword>fraytools</keyword>
+      <keyword>fray</keyword>
+    </keywords>
+
+
   
   <screenshots>
     <screenshot type="default">
-      <image type="source" width="1600" height="900">https://raw.githubusercontent.com/shifterbit/fraytools-manager/master/screenshots/main_menu.png</image>
+      <image>https://raw.githubusercontent.com/shifterbit/fraytools-manager/master/screenshots/main_menu.png</image>
       <caption>Main menu</caption>
     </screenshot>
     <screenshot>
-      <image type="source" width="1600" height="900">https://raw.githubusercontent.com/shifterbit/fraytools-manager/master/screenshots/adding_source.png</image>
+      <image>https://raw.githubusercontent.com/shifterbit/fraytools-manager/master/screenshots/adding_source.png</image>
       <caption>Source Entry Popup</caption>
     </screenshot>
     <screenshot>
-      <image type="source" width="1600" height="900">https://raw.githubusercontent.com/shifterbit/fraytools-manager/master/screenshots/changelog_view.png</image>
+      <image>https://raw.githubusercontent.com/shifterbit/fraytools-manager/master/screenshots/changelog_view.png</image>
       <caption>Example changelog view</caption>
     </screenshot>
   </screenshots>
