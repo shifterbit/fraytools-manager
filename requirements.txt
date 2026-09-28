@@ -34,4 +34,4 @@ typing-extensions==4.12.2; python_version >= '3.8'
 yarl==1.18.3; python_version >= '3.9'
 aiogithubapi==24.6.0
 pyinstaller==6.22.3
-pyinstaller-hooks-contrib==2025.0
+pyinstaller-hooks-contrib==2026.7
