@@ -10,6 +10,7 @@
       zipfile2
       aiogithubapi
       pyinstaller
+      pip-tools
     ];
 in
   pkgs.mkShell {
